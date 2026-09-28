@@ -28,7 +28,7 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install dependencies
-        run: pnpm --dir frontend install
+        run: pnpm --dir frontend install --no-frozen-lockfile
       - name: Build Single-File App
         run: pnpm --dir frontend build
       - name: Upload Pages artifact
