@@ -1,0 +1,137 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply min-h-screen bg-base-50 text-base-900 antialiased;
+  background-image:
+    radial-gradient(circle at 12% 12%, rgba(0, 210, 255, 0.08), transparent 35%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.8));
+}
+
+.dark body {
+  background-color: #000000 !important;
+  color: #f8fafc !important;
+  background-image: none !important;
+}
+
+#root {
+  @apply min-h-screen bg-transparent;
+}
+
+/* Custom sleek AMOLED scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+::-webkit-scrollbar-thumb {
+  background: #22222e;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #38384a;
+}
+
+.glass-card {
+  @apply rounded-2xl border border-base-200/80 bg-white/90 shadow-sm backdrop-blur-md transition-all duration-200;
+}
+
+.dark .glass-card {
+  background-color: #07070a !important;
+  border-color: rgba(255, 255, 255, 0.09) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.04) !important;
+}
+
+.dark .glass-card:hover {
+  border-color: rgba(0, 210, 255, 0.25) !important;
+}
+
+.input-base {
+  @apply w-full rounded-xl border border-base-200 bg-white/90 px-3 py-2 text-sm text-base-900 outline-none transition focus:border-accent-500 focus:ring-2 focus:ring-accent-500/20;
+}
+
+.dark .input-base {
+  background-color: #040407 !important;
+  border-color: #1c1c26 !important;
+  color: #ffffff !important;
+}
+
+.dark .input-base:focus {
+  border-color: #00d2ff !important;
+  box-shadow: 0 0 0 2px rgba(0, 210, 255, 0.18) !important;
+}
+
+.button-primary {
+  @apply inline-flex items-center justify-center rounded-xl bg-accent-500 px-4 py-2 text-sm font-semibold text-black transition-all hover:bg-accent-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+  box-shadow: 0 0 16px rgba(0, 210, 255, 0.25);
+}
+
+.dark .button-primary {
+  background-color: #00d2ff !important;
+  color: #000000 !important;
+  box-shadow: 0 0 18px rgba(0, 210, 255, 0.3) !important;
+}
+.dark .button-primary:hover {
+  background-color: #38bdf8 !important;
+  box-shadow: 0 0 24px rgba(0, 210, 255, 0.45) !important;
+}
+
+.button-secondary {
+  @apply inline-flex items-center justify-center rounded-xl border border-base-200 bg-white/90 px-4 py-2 text-sm font-semibold text-base-800 transition-all hover:bg-base-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.dark .button-secondary {
+  background-color: #0a0a0f !important;
+  border-color: #22222e !important;
+  color: #e2e8f0 !important;
+}
+.dark .button-secondary:hover {
+  background-color: #14141d !important;
+  border-color: #36364a !important;
+  color: #ffffff !important;
+}
+
+/* AMOLED Code Display Well */
+.code-well {
+  background: #000000;
+  border: 1px solid #1a1a24;
+}
+.dark .code-well {
+  background: #020204;
+  border: 1px solid #1a1a24;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.95);
+}
+
+.turnstile-shell {
+  @apply flex min-h-[74px] items-center justify-center overflow-hidden rounded-2xl border border-base-200/80 bg-white px-2 py-2 dark:border-base-700/80 dark:bg-base-900;
+}
+
+.turnstile-hidden-shell {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.turnstile-widget {
+  @apply flex items-center justify-center;
+}
+
+.turnstile-widget > div,
+.turnstile-widget iframe {
+  margin-left: auto;
+  margin-right: auto;
+}

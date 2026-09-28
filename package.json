@@ -1,0 +1,12 @@
+{
+  "name": "steamguard-pwa",
+  "version": "1.0.0",
+  "description": "Serverless Steam Web Authenticator & 2FA Confirmations PWA",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --dir frontend dev",
+    "build": "pnpm --dir frontend build",
+    "preview": "pnpm --dir frontend preview",
+    "test": "pnpm --dir frontend test"
+  }
+}
