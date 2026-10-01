@@ -83,6 +83,49 @@ export function applyCorsProxy(targetUrl: string, proxyUrl?: string): string {
   return `${p}/${targetUrl}`;
 }
 
+/**
+ * Executes fetch with exponential backoff and rate-limit (HTTP 429) awareness.
+ * Automatically backs off and retries when Steam temporarily rate limits requests.
+ */
+export async function fetchWithRateLimit(
+  url: string,
+  options: RequestInit,
+  maxRetries = 2
+): Promise<Response> {
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      const response = await fetch(url, options);
+
+      if (response.status === 429) {
+        if (attempt < maxRetries) {
+          // If Steam provides a Retry-After header, honor it. Otherwise backoff 2s -> 4s
+          const retryAfter = response.headers?.get('Retry-After');
+          const delaySec = retryAfter ? Number(retryAfter) || 2 : (attempt + 1) * 2;
+          await new Promise((resolve) => setTimeout(resolve, delaySec * 1000));
+          attempt++;
+          continue;
+        }
+        throw new Error('RATE_LIMITED: Steam sunucuları çok fazla istek nedeniyle geçici hız sınırı (HTTP 429 Too Many Requests) uyguladı. Lütfen 30-60 saniye bekleyin.');
+      }
+
+      return response;
+    } catch (err: any) {
+      if (err?.message?.includes('RATE_LIMITED')) {
+        throw err;
+      }
+      // If network transient failure (TypeError / fetch failed), retry once
+      if (attempt < maxRetries && (err?.name === 'TypeError' || err?.message?.includes('Failed to fetch') || err?.message?.includes('NetworkError'))) {
+        await new Promise((resolve) => setTimeout(resolve, (attempt + 1) * 1000));
+        attempt++;
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('RATE_LIMITED: İstek kotası aşıldı.');
+}
+
 export class SteamClient {
   /**
    * Sync time directly with official Steam Web API.
@@ -189,8 +232,11 @@ export class SteamClient {
 
     let response: Response;
     try {
-      response = await fetch(url, fetchOptions);
+      response = await fetchWithRateLimit(url, fetchOptions);
     } catch (err: any) {
+      if (err?.message?.includes('RATE_LIMITED')) {
+        throw err;
+      }
       // Direct browser fetch blocked by CORS or network
       if (!settings.corsProxyUrl && (err?.name === 'TypeError' || err?.message?.includes('fetch') || err?.message?.includes('NetworkError') || err?.message?.includes('Failed to fetch'))) {
         throw new Error('CORS_BLOCKED');
@@ -199,6 +245,9 @@ export class SteamClient {
     }
 
     if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error('RATE_LIMITED: Steam onay isteklerine hız sınırı (HTTP 429) uyguladı. Lütfen 30 saniye bekleyin.');
+      }
       throw new Error(`Steam onay isteği başarısız oldu: HTTP ${response.status}`);
     }
 
@@ -404,9 +453,12 @@ export class SteamClient {
       fetchOptions.credentials = 'include';
     }
 
-    const response = await fetch(url, fetchOptions);
+    const response = await fetchWithRateLimit(url, fetchOptions);
 
     if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error('RATE_LIMITED: Steam yanıt işlemine hız sınırı (HTTP 429) uyguladı. Lütfen birkaç saniye bekleyin.');
+      }
       throw new Error(`Failed to respond to confirmation: HTTP ${response.status}`);
     }
 
@@ -461,13 +513,16 @@ export class SteamClient {
       postHeaders['X-Proxy-Secret'] = settings.corsProxySecret.trim();
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithRateLimit(url, {
       method: 'POST',
       headers: postHeaders,
       body: body.toString()
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error('RATE_LIMITED: Steam oturum onayına hız sınırı (HTTP 429) uyguladı.');
+      }
       throw new Error(`Failed to update auth session: HTTP ${response.status}`);
     }
 

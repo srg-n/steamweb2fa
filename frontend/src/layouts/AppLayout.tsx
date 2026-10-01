@@ -116,7 +116,7 @@ export function AppLayout() {
   );
 
   return (
-    <div className="min-h-screen bg-base-50 text-base-900 transition-colors dark:bg-black dark:text-base-100 flex flex-col md:grid md:grid-cols-[260px_1fr]">
+    <div className="min-h-screen bg-base-50 text-base-900 transition-colors dark:bg-black dark:text-base-100 flex flex-col md:grid md:grid-cols-[260px_1fr] overflow-x-hidden w-full max-w-full">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col border-r border-base-200/80 bg-white/70 p-4 backdrop-blur dark:border-base-800/80 dark:bg-black sticky top-0 h-screen">
         <div className="mb-6 flex items-center gap-2.5 px-2">
@@ -193,15 +193,15 @@ export function AppLayout() {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex flex-1 flex-col min-w-0 pb-24 md:pb-8">
+      <div className="flex flex-1 flex-col min-w-0 pb-24 md:pb-8 w-full max-w-full overflow-x-hidden">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-base-200/80 bg-white/80 px-4 py-3 backdrop-blur dark:border-base-800/80 dark:bg-black/90">
-          <div className="flex items-center gap-2 md:hidden">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-accent-500 text-black shadow-sm">
-              <ShieldCheck size={20} className="text-black" />
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-base-200/80 bg-white/80 px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur dark:border-base-800/80 dark:bg-black/90 w-full max-w-full overflow-hidden">
+          <div className="flex items-center gap-2 min-w-0 flex-shrink">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-accent-500 text-black shadow-sm">
+              <ShieldCheck size={18} className="text-black" />
             </div>
-            <span className="font-bold text-sm tracking-tight dark:text-white">SteamGuard</span>
-            <span className="rounded-md bg-accent-500/15 px-1.5 py-0.5 text-[9px] font-bold text-accent-500 dark:text-[#00d2ff]">
+            <span className="font-bold text-sm tracking-tight dark:text-white truncate">SteamGuard</span>
+            <span className="rounded-md bg-accent-500/15 px-1.5 py-0.5 text-[9px] font-bold text-accent-500 dark:text-[#00d2ff] flex-shrink-0">
               OLED
             </span>
           </div>
@@ -218,15 +218,16 @@ export function AppLayout() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2 ml-auto flex-shrink-0">
             {!isStandalone && (
               <Button
                 variant="secondary"
-                className="md:hidden h-8 px-2 text-xs gap-1 border-accent-500/40 text-accent-400 bg-accent-500/10"
+                className="md:hidden h-8 px-2 text-xs gap-1 border-accent-500/40 text-accent-400 bg-accent-500/10 flex items-center"
                 onClick={handleInstallClick}
+                title={t('settings.installBtn')}
               >
-                <Download size={14} />
-                Yükle
+                <Download size={13} />
+                <span className="hidden min-[420px]:inline text-[11px] font-bold">Yükle</span>
               </Button>
             )}
             <LanguageSwitcher />
@@ -235,7 +236,7 @@ export function AppLayout() {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-3 sm:p-5 md:p-6 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3 sm:p-5 md:p-6 max-w-7xl w-full mx-auto overflow-x-hidden">
           <Outlet />
         </main>
       </div>

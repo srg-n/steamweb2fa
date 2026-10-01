@@ -43,11 +43,25 @@ export function ConfirmationsPage() {
 
   // Auto-refresh interval (in seconds, 0 = off)
   const [autoRefreshSec, setAutoRefreshSec] = useState<number>(30);
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const [rateLimitTimer, setRateLimitTimer] = useState<number>(0);
 
   const loadAccounts = useCallback(async () => {
     const res = await accountApi.list();
     setAccounts(res.items);
   }, []);
+
+  // Rate limit cooldown countdown timer
+  useEffect(() => {
+    if (rateLimitTimer <= 0) {
+      if (isRateLimited) setIsRateLimited(false);
+      return;
+    }
+    const timer = setInterval(() => {
+      setRateLimitTimer((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [rateLimitTimer, isRateLimited]);
 
   const fetchConfirmations = useCallback(async () => {
     setLoading(true);
@@ -65,7 +79,14 @@ export function ConfirmationsPage() {
         setConfirmations(items);
       }
     } catch (err: any) {
-      if (err?.message === 'CORS_BLOCKED') {
+      if (err?.message?.includes('RATE_LIMITED') || err?.message?.includes('429')) {
+        setIsRateLimited(true);
+        setRateLimitTimer(45);
+        setMessage({
+          text: '⚠️ Steam geçici hız sınırı uyguladı (HTTP 429). İstekler 45 saniye duraklatıldı.',
+          type: 'error'
+        });
+      } else if (err?.message === 'CORS_BLOCKED') {
         setIsCorsBlocked(true);
       } else {
         setMessage({
@@ -86,12 +107,12 @@ export function ConfirmationsPage() {
     fetchConfirmations();
   }, [fetchConfirmations]);
 
-  // Auto-refresh timer
+  // Auto-refresh timer (automatically paused when rate limited)
   useEffect(() => {
-    if (autoRefreshSec <= 0) return;
+    if (autoRefreshSec <= 0 || isRateLimited) return;
     const interval = setInterval(fetchConfirmations, autoRefreshSec * 1000);
     return () => clearInterval(interval);
-  }, [autoRefreshSec, fetchConfirmations]);
+  }, [autoRefreshSec, fetchConfirmations, isRateLimited]);
 
   const handleRespond = async (item: ConfirmationItem, accept: boolean) => {
     setProcessingId(item.id);
@@ -111,6 +132,10 @@ export function ConfirmationsPage() {
         });
       }
     } catch (err: any) {
+      if (err?.message?.includes('RATE_LIMITED') || err?.message?.includes('429')) {
+        setIsRateLimited(true);
+        setRateLimitTimer(45);
+      }
       setMessage({
         text: err?.message || 'Error communicating with Steam.',
         type: 'error'
@@ -137,14 +162,24 @@ export function ConfirmationsPage() {
     for (let i = 0; i < total; i++) {
       if (abortBatchRef.current) break;
       const item = confirmations[i];
+      let ok = false;
       try {
-        const ok = await steamApi.respond(item.accountId, item.id, item.nonce, accept);
-        if (ok) {
-          successCount++;
-          setConfirmations((prev) => prev.filter((c) => c.id !== item.id));
+        ok = await steamApi.respond(item.accountId, item.id, item.nonce, accept);
+      } catch (err: any) {
+        if (err?.message?.includes('RATE_LIMITED') || err?.message?.includes('429')) {
+          // Pause batch for 3.5 seconds and retry once
+          await new Promise((r) => setTimeout(r, 3500));
+          try {
+            ok = await steamApi.respond(item.accountId, item.id, item.nonce, accept);
+          } catch {
+            // continue
+          }
         }
-      } catch {
-        // continue
+      }
+
+      if (ok) {
+        successCount++;
+        setConfirmations((prev) => prev.filter((c) => c.id !== item.id));
       }
 
       const current = i + 1;
@@ -155,9 +190,9 @@ export function ConfirmationsPage() {
         successCount
       });
 
-      // 120ms rate-limit delay to prevent Steam 429 Too Many Requests
+      // Polite 500ms rate-limit delay between Steam confirmation requests
       if (i < total - 1 && !abortBatchRef.current) {
-        await new Promise((r) => setTimeout(r, 120));
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
 
@@ -182,9 +217,27 @@ export function ConfirmationsPage() {
   }, [accounts]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 max-w-full overflow-hidden">
+      {/* Rate Limit Warning Banner */}
+      {isRateLimited && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3.5 sm:p-4 text-xs sm:text-sm text-amber-300 flex items-start gap-2.5 shadow-glow">
+          <AlertCircle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-bold text-white flex items-center gap-2">
+              <span>Steam Hız Sınırı (Rate Limit — HTTP 429)</span>
+              <span className="font-mono text-[11px] bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-400">
+                {rateLimitTimer}s beklemede
+              </span>
+            </div>
+            <p className="text-base-300 text-[12px] leading-relaxed">
+              Steam sunucuları çok sık onay sorgusu yapıldığı için geçici olarak yanıt vermeyi kısıtladı. Otomatik yenileme ve istekler güvenlik amacıyla {rateLimitTimer} saniye boyunca duraklatıldı.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
             <Inbox className="text-accent-500" />
@@ -195,10 +248,10 @@ export function ConfirmationsPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {/* Account Filter */}
           <select
-            className="input-base text-xs sm:text-sm py-1.5 h-9"
+            className="input-base text-xs sm:text-sm py-1.5 h-8 sm:h-9 flex-1 sm:flex-none min-w-[120px]"
             value={selectedAccountId}
             onChange={(e) => setSelectedAccountId(e.target.value)}
           >
@@ -212,7 +265,7 @@ export function ConfirmationsPage() {
 
           {/* Auto refresh select */}
           <select
-            className="input-base text-xs py-1.5 h-9"
+            className="input-base text-xs py-1.5 h-8 sm:h-9 w-auto"
             value={autoRefreshSec}
             onChange={(e) => setAutoRefreshSec(Number(e.target.value))}
             title="Auto refresh interval"
@@ -228,28 +281,28 @@ export function ConfirmationsPage() {
             href={directSteamUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="button-secondary h-9 px-3 text-xs gap-1.5 flex items-center hover:border-accent-500 hover:text-accent-500"
+            className="button-secondary h-8 sm:h-9 px-2.5 sm:px-3 text-xs gap-1.5 flex items-center hover:border-accent-500 hover:text-accent-500 rounded-xl"
             title="Steam resmi mobil onay sayfasını yeni sekmede aç"
           >
-            <ExternalLink size={14} />
-            <span>Steam'de Aç</span>
+            <ExternalLink size={13} />
+            <span className="hidden xs:inline">Steam'de Aç</span>
           </a>
 
           {/* Manual Refresh Button */}
           <Button
             variant="secondary"
-            className="h-9 px-3 text-xs gap-1.5"
+            className="h-8 sm:h-9 px-2.5 sm:px-3 text-xs gap-1.5 rounded-xl"
             onClick={fetchConfirmations}
-            disabled={loading}
+            disabled={loading || isRateLimited}
           >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            {t('confirmations.refresh')}
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            <span className="hidden xs:inline">{t('confirmations.refresh')}</span>
           </Button>
 
           {/* Auto-Confirm Toggle */}
           <Button
             variant="secondary"
-            className={`h-9 px-3 text-xs gap-1.5 transition-all ${
+            className={`h-8 sm:h-9 px-2.5 sm:px-3 text-xs gap-1.5 rounded-xl transition-all ${
               autoConfirmEnabled
                 ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-glow'
                 : 'text-base-400'
@@ -257,32 +310,32 @@ export function ConfirmationsPage() {
             onClick={() => setAutoConfirmEnabled(!autoConfirmEnabled)}
             title="Yeni gelen tüm pazar ve takas onaylarını otomatik kabul et"
           >
-            <Zap size={14} className={autoConfirmEnabled ? 'text-amber-400 fill-amber-400' : ''} />
-            <span>{autoConfirmEnabled ? 'Oto-Onay: AÇIK' : 'Oto-Onay: KAPALI'}</span>
+            <Zap size={13} className={autoConfirmEnabled ? 'text-amber-400 fill-amber-400' : ''} />
+            <span>{autoConfirmEnabled ? 'Oto: Açık' : 'Oto: Kapalı'}</span>
           </Button>
 
           {/* Batch Actions */}
           {confirmations.length > 0 && (
-            <>
+            <div className="flex items-center gap-1.5 w-full sm:w-auto mt-1 sm:mt-0">
               <Button
                 variant="primary"
-                className="h-9 px-3 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700"
+                className="flex-1 sm:flex-none h-8 sm:h-9 px-3 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-bold"
                 onClick={() => handleBatch(true)}
-                disabled={batchBusy || loading}
+                disabled={batchBusy || loading || isRateLimited}
               >
                 <CheckCircle2 size={14} />
                 {t('confirmations.acceptAll')} ({confirmations.length})
               </Button>
               <Button
                 variant="danger"
-                className="h-9 px-3 text-xs gap-1"
+                className="h-8 sm:h-9 px-3 text-xs gap-1 rounded-xl"
                 onClick={() => handleBatch(false)}
-                disabled={batchBusy || loading}
+                disabled={batchBusy || loading || isRateLimited}
               >
                 <XCircle size={14} />
-                {t('confirmations.rejectAll')}
+                <span className="hidden xs:inline">{t('confirmations.rejectAll')}</span>
               </Button>
-            </>
+            </div>
           )}
         </div>
       </div>
@@ -458,11 +511,11 @@ export function ConfirmationsPage() {
                 </div>
 
                 {/* Accept / Decline Action Buttons */}
-                <div className="flex items-center gap-2 self-end sm:self-center flex-shrink-0">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end sm:justify-start flex-shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-base-200/60 dark:border-white/[0.06]">
                   <Button
                     variant="primary"
-                    className="h-9 px-4 text-xs font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:text-black dark:hover:bg-emerald-400 shadow-glow-emerald"
-                    disabled={isBusy}
+                    className="flex-1 sm:flex-none h-9 px-4 text-xs font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:text-black dark:hover:bg-emerald-400 shadow-glow-emerald rounded-xl"
+                    disabled={isBusy || isRateLimited}
                     onClick={() => handleRespond(item, true)}
                   >
                     <CheckCircle2 size={15} />
@@ -470,8 +523,8 @@ export function ConfirmationsPage() {
                   </Button>
                   <Button
                     variant="danger"
-                    className="h-9 px-4 text-xs font-bold gap-1.5 shadow-sm dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/30 dark:hover:bg-red-600 dark:hover:text-white"
-                    disabled={isBusy}
+                    className="flex-1 sm:flex-none h-9 px-4 text-xs font-bold gap-1.5 shadow-sm dark:bg-red-500/20 dark:text-red-400 dark:border-red-500/30 dark:hover:bg-red-600 dark:hover:text-white rounded-xl"
+                    disabled={isBusy || isRateLimited}
                     onClick={() => handleRespond(item, false)}
                   >
                     <XCircle size={15} />

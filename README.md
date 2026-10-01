@@ -1,6 +1,8 @@
 # 🛡️ SteamWeb Authenticator — 100% Serverless Steam Guard & Onay Yöneticisi
 
-🌐 Canlı Demo: https://srg-n.github.io/steamweb2fa/
+[![Live Demo](https://img.shields.io/badge/Canl%C4%B1%20Uygulama-GitHub%20Pages-00d2ff?style=for-the-badge&logo=github)](https://srg-n.github.io/steamweb2fa/)
+
+🌐 **Canlı Demo:** [https://srg-n.github.io/steamweb2fa/](https://srg-n.github.io/steamweb2fa/)
 
 > **Sunucusuz (Zero-Backend), Tarayıcı İçi Steam Guard 2FA Kod Üretici & Toplu Takas/Pazar Onay Yöneticisi.**  
 > Docker, harici veritabanı veya Node.js backend sunucusu gerektirmez. İster tek bir HTML dosyası olarak bilgisayarınızda çift tıklayarak açın, ister doğrudan GitHub Pages üzerinden kullanın!
