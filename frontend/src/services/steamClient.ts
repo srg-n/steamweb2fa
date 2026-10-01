@@ -54,14 +54,22 @@ export function isJwtExpired(token: string): boolean {
 }
 
 /**
- * Normalizes steamLoginSecure value to ensure URL-safe format (<steamid>%7C%7C<token>).
+ * Normalizes steamLoginSecure value to the canonical wire format
+ * (<steamid>%7C%7C<token>).
+ *
+ * Steam issues the separator percent-encoded (%7C%7C), but cookies copied from
+ * DevTools sometimes contain the raw "||" form. Both are normalized here so the
+ * request header always matches what Steam itself set.
  */
 export function formatSteamLoginCookie(steamLoginSecure: string, steamid?: string): string {
-  let clean = steamLoginSecure.replace(/^steamLoginSecure=\s*/i, '').trim();
-  if (!clean.includes('%7C%7C') && !clean.includes('||') && steamid && steamid !== '0') {
-    clean = `${steamid}%7C%7C${clean}`;
+  const clean = steamLoginSecure.replace(/^steamLoginSecure=\s*/i, '').trim();
+  if (clean.includes('%7C%7C') || clean.includes('||')) {
+    return clean.replace(/\|\|/g, '%7C%7C');
   }
-  return clean.replace(/\|\|/g, '%7C%7C');
+  if (steamid && steamid !== '0') {
+    return `${steamid}%7C%7C${clean}`;
+  }
+  return clean;
 }
 
 /**

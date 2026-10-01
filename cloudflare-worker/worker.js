@@ -1,15 +1,18 @@
 /**
  * Cloudflare Worker - Steam CORS & Mobile Confirmation Proxy
- * 
+ *
  * Provides a 100% serverless, zero-maintenance CORS proxy for SteamGuard Web Authenticator.
  * Runs on Cloudflare's global edge network (Free tier: 100,000 requests/day).
- * 
+ *
  * Features:
- * - Strict whitelist: only allows steamcommunity.com and api.steampowered.com
+ * - Strict whitelist: only allows Steam-owned domains
  * - Full CORS headers injection (Access-Control-Allow-Origin: *)
  * - Forwards X-Steam-Cookie into real Cookie header for authenticated requests
+ * - Manual redirect handling so Set-Cookie headers from 302 hops are never lost
  * - Optional PROXY_SECRET authentication to protect your quota
  */
+
+const MAX_REDIRECTS = 5;
 
 function isAllowedHost(hostname) {
   return (
@@ -102,7 +105,17 @@ export default {
 
     // 5. Build outgoing request to Steam
     const forwardHeaders = new Headers();
-    const copyHeaders = ['accept', 'content-type', 'user-agent'];
+    const copyHeaders = [
+      'accept',
+      'content-type',
+      'user-agent',
+      'origin',
+      'referer',
+      'x-requested-with',
+      'sec-fetch-site',
+      'sec-fetch-mode',
+      'sec-fetch-dest'
+    ];
     for (const h of copyHeaders) {
       const val = request.headers.get(h);
       if (val) forwardHeaders.set(h, val);
@@ -122,20 +135,72 @@ export default {
       forwardHeaders.set('cookie', cookieVal);
     }
 
-    const init = {
-      method: request.method,
-      headers: forwardHeaders,
-      redirect: 'follow'
-    };
-
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      init.body = await request.arrayBuffer();
-    }
+    const method = request.method;
+    const body = method === 'GET' || method === 'HEAD' ? undefined : await request.arrayBuffer();
 
     try {
-      const steamResponse = await fetch(targetUrl.toString(), init);
+      // 6. Follow redirects manually.
+      // The platform runtime swallows Set-Cookie from intermediate 302 responses when
+      // redirect:'follow' is used. Steam's login/settoken endpoints set the session cookie
+      // on the redirect response, so those cookies must be captured before following it.
+      let currentUrl = targetUrl.toString();
+      let currentMethod = method;
+      let currentBody = body;
+      let steamResponse = null;
+      const collectedCookies = [];
 
-      // 6. Return response with CORS headers injected
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        const response = await fetch(currentUrl, {
+          method: currentMethod,
+          headers: forwardHeaders,
+          redirect: 'manual',
+          body: currentBody
+        });
+
+        // Harvest Set-Cookie from every hop, including redirects.
+        if (typeof response.headers.getSetCookie === 'function') {
+          for (const cookie of response.headers.getSetCookie()) {
+            collectedCookies.push(cookie);
+          }
+        } else {
+          const sc = response.headers.get('set-cookie');
+          if (sc) collectedCookies.push(sc);
+        }
+
+        const isRedirect = response.status >= 300 && response.status < 400;
+        const location = response.headers.get('location');
+        if (isRedirect && location) {
+          let nextUrl;
+          try {
+            nextUrl = new URL(location, currentUrl);
+          } catch {
+            break;
+          }
+
+          // Never follow a redirect off the Steam whitelist.
+          if (!isAllowedHost(nextUrl.hostname)) break;
+
+          // 301/302/303 turn a POST into a GET without a body.
+          if (response.status === 301 || response.status === 302 || response.status === 303) {
+            currentMethod = 'GET';
+            currentBody = undefined;
+          }
+          currentUrl = nextUrl.toString();
+          continue;
+        }
+
+        steamResponse = response;
+        break;
+      }
+
+      if (!steamResponse) {
+        return new Response(JSON.stringify({ error: 'Too many redirects while contacting Steam' }), {
+          status: 502,
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+        });
+      }
+
+      // 7. Return response with CORS headers injected
       const responseHeaders = new Headers(steamResponse.headers);
       for (const [k, v] of Object.entries(CORS_HEADERS)) {
         responseHeaders.set(k, v);
@@ -144,18 +209,11 @@ export default {
       // Remove restrictive headers
       responseHeaders.delete('x-frame-options');
       responseHeaders.delete('content-security-policy');
+      responseHeaders.delete('set-cookie');
 
-      // Forward Set-Cookie as X-Steam-Set-Cookie so browser JS can read it for session renewal
-      if (typeof steamResponse.headers.getSetCookie === 'function') {
-        const cookies = steamResponse.headers.getSetCookie();
-        if (cookies.length > 0) {
-          responseHeaders.set('X-Steam-Set-Cookie', cookies.join('; '));
-        }
-      } else {
-        const sc = steamResponse.headers.get('set-cookie');
-        if (sc) {
-          responseHeaders.set('X-Steam-Set-Cookie', sc);
-        }
+      // Expose every Set-Cookie seen along the redirect chain so the client can read it.
+      if (collectedCookies.length > 0) {
+        responseHeaders.set('X-Steam-Set-Cookie', collectedCookies.join('; '));
       }
 
       return new Response(steamResponse.body, {

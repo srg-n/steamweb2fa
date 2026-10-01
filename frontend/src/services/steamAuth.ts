@@ -147,147 +147,137 @@ export class SteamAuthService {
    */
   async finalizeAuthSession(
     refreshToken: string,
-    settings: AppSettings
+    settings: AppSettings,
+    knownSteamId?: string
   ): Promise<{ steamLoginSecure?: string; sessionid: string; oauthToken?: string; steamID?: string }> {
-    const randomSessionId = Array.from(crypto.getRandomValues(new Uint8Array(12)))
+    const sessionId = Array.from(crypto.getRandomValues(new Uint8Array(12)))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
+
+    const proxyHeaders = (): Record<string, string> => {
+      const headers: Record<string, string> = {};
+      if (settings.corsProxySecret?.trim()) {
+        headers['X-Proxy-Secret'] = settings.corsProxySecret.trim();
+      }
+      return headers;
+    };
 
     const targetUrl = 'https://login.steampowered.com/jwt/finalizelogin';
     const url = applyCorsProxy(targetUrl, settings.corsProxyUrl);
 
-    const body = new URLSearchParams({
-      nonce: refreshToken,
-      sessionid: randomSessionId,
-      redir: 'https://steamcommunity.com/login/home/?goto='
-    });
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    };
-    if (settings.corsProxySecret?.trim()) {
-      headers['X-Proxy-Secret'] = settings.corsProxySecret.trim();
-    }
+    // Steam's auth endpoints expect multipart/form-data, matching steam-session.
+    const form = new FormData();
+    form.append('nonce', refreshToken);
+    form.append('sessionid', sessionId);
+    form.append('redir', 'https://steamcommunity.com/login/home/?goto=');
 
     const res = await fetch(url, {
       method: 'POST',
-      headers,
-      body: body.toString()
+      headers: {
+        ...proxyHeaders(),
+        Origin: 'https://steamcommunity.com',
+        Referer: 'https://steamcommunity.com/'
+      },
+      body: form
     });
 
-    if (!res.ok) {
-      let errDetail = '';
-      try {
-        const errJson = await res.json();
-        errDetail = errJson.error || errJson.message || '';
-      } catch {
-        // ignore
-      }
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+
+    if (!res.ok || data?.error) {
+      const errDetail = data?.error || data?.message || '';
       if (errDetail.includes('Forbidden host') || errDetail.includes('login.steampowered.com')) {
         throw new Error('Cloudflare Worker güncel değil! Lütfen cloudflare-worker/worker.js dosyasındaki yeni kodu Cloudflare panelinize yapıştırıp "Save and Deploy" yapın.');
       }
       throw new Error(`Steam oturumu HTTP ${res.status}${errDetail ? `: ${errDetail}` : ''}`);
     }
 
-    const data = await res.json();
-    let extractedCookie = '';
-    let extractedSteamID = data?.steamID || '';
-    let extractedAuthToken = '';
-
-    // Check Set-Cookie forwarded by Cloudflare Worker
-    const setCookieHeader = res.headers.get('x-steam-set-cookie') || res.headers.get('set-cookie');
-    if (setCookieHeader) {
-      const match = setCookieHeader.match(/steamLoginSecure=([^;]+)/);
-      if (match && match[1]) {
-        extractedCookie = decodeURIComponent(match[1]);
-      }
+    if (!data?.transfer_info) {
+      throw new Error('Steam geçersiz oturum yanıtı döndü (transfer_info yok).');
     }
 
-    // Follow transfer_info specifically to steamcommunity.com/login/settoken
-    // IMPORTANT: Two-pass approach - community token must NOT be overwritten by store token.
-    // Steam's transfer_info contains domain-specific tokens; we need the steamcommunity.com one.
-    if (Array.isArray(data?.transfer_info)) {
-      // Pass 1: Find the steamcommunity.com token specifically (highest priority)
-      let communityAuthToken = '';
-      let communityAuthSteamID = '';
-      for (const info of data.transfer_info) {
-        if (!info.params || !info.url) continue;
-        const isCommunity = info.url.includes('steamcommunity.com');
-        if (isCommunity && info.params.auth) {
-          communityAuthToken = info.params.auth;
-          if (info.params.steamID) {
-            communityAuthSteamID = info.params.steamID;
-          }
-          break; // Found it — stop scanning
-        }
-      }
+    const steamID = data.steamID || knownSteamId || '0';
+    let cookieValue = '';
+    const transferResults: string[] = [];
 
-      // Pass 2: Fallback — use any token if no community-specific one found
-      if (!communityAuthToken) {
-        for (const info of data.transfer_info) {
-          if (info.params?.auth) {
-            communityAuthToken = info.params.auth;
-            if (info.params.steamID) communityAuthSteamID = info.params.steamID;
-            break;
-          }
-        }
-      }
+    // Execute every transfer, retrying transient failures like steam-session does.
+    for (const transfer of data.transfer_info) {
+      if (!transfer?.url || !transfer?.params) continue;
 
-      if (communityAuthToken) {
-        extractedAuthToken = communityAuthToken;
-        if (communityAuthSteamID) extractedSteamID = communityAuthSteamID;
-      }
+      const isCommunity = String(transfer.url).includes('steamcommunity.com');
+      const ATTEMPT_COUNT = 5;
 
-      // Pass 3: Ping all settoken endpoints so Steam server-side session registers
-      // Prioritize steamcommunity.com first, then others
-      const sortedTransfers = [...data.transfer_info].sort((a, b) => {
-        const aC = a.url?.includes('steamcommunity.com') ? -1 : 1;
-        const bC = b.url?.includes('steamcommunity.com') ? -1 : 1;
-        return aC - bC;
-      });
-
-      for (const info of sortedTransfers) {
-        if (!info.url || !info.params) continue;
-        const transferTarget = info.url;
-        const transferUrl = applyCorsProxy(transferTarget, settings.corsProxyUrl);
-        const transferBody = new URLSearchParams(info.params);
-
+      for (let attempt = 0; attempt < ATTEMPT_COUNT; attempt++) {
         try {
-          const tRes = await fetch(transferUrl, {
+          const transferForm = new FormData();
+          transferForm.append('steamID', steamID);
+          for (const [k, v] of Object.entries(transfer.params)) {
+            transferForm.append(k, String(v));
+          }
+
+          const tRes = await fetch(applyCorsProxy(transfer.url, settings.corsProxyUrl), {
             method: 'POST',
-            headers,
-            body: transferBody.toString()
+            headers: proxyHeaders(),
+            body: transferForm
           });
 
-          // Prefer the cookie from steamcommunity.com response
-          const isCommunity = info.url.includes('steamcommunity.com');
-          const tCookieHeader = tRes.headers.get('x-steam-set-cookie') || tRes.headers.get('set-cookie');
-          if (tCookieHeader) {
-            const match = tCookieHeader.match(/steamLoginSecure=([^;]+)/);
-            if (match && match[1]) {
-              const decoded = decodeURIComponent(match[1]);
-              // Only overwrite if we got a community cookie, or we have nothing yet
-              if (isCommunity || !extractedCookie) {
-                extractedCookie = decoded;
-              }
-            }
+          if (!tRes.ok) {
+            throw new Error(`HTTP ${tRes.status}`);
           }
-        } catch {
-          // Continue to next transfer
+
+          let tJson: any = null;
+          try {
+            tJson = await tRes.json();
+          } catch {
+            tJson = null;
+          }
+          if (tJson?.result && String(tJson.result) !== '1') {
+            throw new Error(`Steam sonucu ${tJson.result}`);
+          }
+
+          const cookieHeader =
+            tRes.headers.get('x-steam-set-cookie') || tRes.headers.get('set-cookie') || '';
+          if (!cookieHeader) {
+            throw new Error('Yanıtta Set-Cookie yok');
+          }
+
+          const match = cookieHeader.match(/steamLoginSecure=([^;]+)/);
+          if (!match) {
+            throw new Error('Yanıtta steamLoginSecure yok');
+          }
+
+          // Keep the value exactly as Steam sent it.
+          if (isCommunity || !cookieValue) {
+            cookieValue = match[1];
+          }
+          transferResults.push(`${transfer.url}: OK`);
+          break;
+        } catch (err: any) {
+          if (attempt === ATTEMPT_COUNT - 1) {
+            transferResults.push(`${transfer.url}: ${err?.message || err}`);
+          } else {
+            await new Promise((r) => setTimeout(r, 500));
+          }
         }
       }
     }
 
-    // Modern Steam uses steamid%7C%7Caccess_token for steamLoginSecure
-    if (!extractedCookie && extractedSteamID && extractedAuthToken) {
-      extractedCookie = `${extractedSteamID}%7C%7C${extractedAuthToken}`;
+    if (!cookieValue) {
+      console.error('[steamAuth] transfer_info sonuçları:', transferResults);
+      throw new Error(
+        'Steam oturum çerezi alınamadı. Transfer adımları: ' + (transferResults.join(' | ') || 'transfer_info boş')
+      );
     }
 
     return {
-      steamLoginSecure: extractedCookie || undefined,
-      sessionid: randomSessionId,
-      oauthToken: extractedAuthToken || undefined,
-      steamID: extractedSteamID || undefined
+      steamLoginSecure: cookieValue,
+      sessionid: sessionId,
+      oauthToken: undefined,
+      steamID
     };
   }
 
@@ -363,16 +353,11 @@ export class SteamAuthService {
     }
 
     const steamid = account.steamid || '0';
-    const fallbackSessionId =
-      account.session?.sessionid ||
-      Array.from(crypto.getRandomValues(new Uint8Array(12)))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
 
-    // Single source of truth: official finalizeLogin flow.
+    // Single source of truth: official finalizeLogin flow (steam-session getWebCookies).
     let fin: { steamLoginSecure?: string; sessionid: string; oauthToken?: string; steamID?: string };
     try {
-      fin = await this.finalizeAuthSession(refreshToken, settings);
+      fin = await this.finalizeAuthSession(refreshToken, settings, steamid);
     } catch (finErr: any) {
       const msg = finErr?.message || 'Steam oturum yenileme isteği başarısız oldu.';
       return {
@@ -384,7 +369,7 @@ export class SteamAuthService {
     if (!fin.steamLoginSecure) {
       return {
         success: false,
-        error: 'Steam yeni çerez döndürmedi (transfer_info boş). RefreshToken süresi dolmuş olabilir — şifrenizle giriş yapın.'
+        error: 'Steam yeni çerez döndürmedi. Şifrenizle giriş yapın.'
       };
     }
 
@@ -395,7 +380,7 @@ export class SteamAuthService {
         : steamid !== '0'
         ? steamid
         : account.steamid;
-    const freshSessionId = fin.sessionid || fallbackSessionId;
+    const freshSessionId = fin.sessionid;
 
     // Verify the new cookie actually works before claiming success.
     // This prevents the "başarıyla yenilendi ama hala needauth" false-positive.
@@ -599,47 +584,21 @@ export class SteamAuthService {
       throw new Error(`Steam oturumu tamamlayamadı (Refresh token alınamadı): ${detail}`);
     }
 
-    // Step 6: Construct session tokens & finalize login
+    // Step 6: Exchange the refresh token for web session cookies.
+    // platform_type 2 is EAuthTokenPlatformType.WebBrowser, so per steam-session the
+    // access token is NOT the session cookie — the cookie must come from finalizelogin.
+    // Never fabricate "steamid||access_token" here; it authenticates WebAPI but not
+    // steamcommunity.com, which shows up later as needauth: true on mobileconf.
     onStatus?.('steamLoginSecure çerezi oluşturuluyor...');
-    const randomSessionId = Array.from(crypto.getRandomValues(new Uint8Array(12)))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
 
     let steamLoginSecure = '';
-    let finalizedSessionId = randomSessionId;
-
-    // If Steam returned the JWT access_token directly, build modern steamLoginSecure
-    if (accessToken) {
-      steamLoginSecure = `${steamid}%7C%7C${accessToken}`;
-    }
-
-    // Also attempt finalizeAuthSession to trigger Steam Community settoken session registration
+    let finalizedSessionId = '';
     try {
-      const fin = await this.finalizeAuthSession(refreshToken, settings);
-      if (fin.steamLoginSecure) {
-        steamLoginSecure = fin.steamLoginSecure;
-      }
-      if (fin.sessionid) {
-        finalizedSessionId = fin.sessionid;
-      }
-      if (fin.oauthToken && !accessToken) {
-        accessToken = fin.oauthToken;
-      }
-    } catch (finalizeErr) {
-      console.warn('finalizeAuthSession non-critical notice:', finalizeErr);
-    }
-
-    // If still empty (rare), try GenerateAccessTokenForApp
-    if (!steamLoginSecure) {
-      try {
-        const genRes = await this.generateAccessToken(steamid, refreshToken, settings);
-        if (genRes) {
-          accessToken = genRes;
-          steamLoginSecure = `${steamid}%7C%7C${accessToken}`;
-        }
-      } catch (genErr) {
-        console.warn('generateAccessToken notice:', genErr);
-      }
+      const fin = await this.finalizeAuthSession(refreshToken, settings, steamid);
+      steamLoginSecure = fin.steamLoginSecure || '';
+      finalizedSessionId = fin.sessionid;
+    } catch (finalizeErr: any) {
+      throw new Error(`Oturum çerezi alınamadı: ${finalizeErr?.message || finalizeErr}`);
     }
 
     if (!steamLoginSecure) {

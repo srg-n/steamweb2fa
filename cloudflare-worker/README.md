@@ -15,6 +15,11 @@ Bu Cloudflare Worker, **SteamGuard Web Authenticator**'ın iPhone, Android ve bi
 7. Sağ üstteki **Save and Deploy** butonuna basın.
 8. Size verilen Worker bağlantısını kopyalayın (Örn: `https://steam-proxy.kullaniciadi.workers.dev`).
 
+> ⚠️ **Önemli:** Worker'ı güncellediyseniz mutlaka **Save and Deploy** butonuna tekrar basın.
+> Özellikle "Otomatik Giriş" / "Oturum Yenile" `needauth: true` hatası veriyorsa Worker'ınız
+> güncel olmayabilir — yeni kod redirect'leri elle takip edip `Set-Cookie` başlıklarını
+> koruyor, eski sürümde bu başlıklar kayboluyordu.
+
 ---
 
 ### 📲 Uygulamaya Bağlama
