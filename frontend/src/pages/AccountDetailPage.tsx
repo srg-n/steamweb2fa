@@ -242,8 +242,12 @@ export function AccountDetailPage() {
         throw new Error(res.error || 'Yenileme başarısız.');
       }
     } catch (err: any) {
+      const raw = err?.message || 'Bilinmeyen hata';
+      const cleanMsg = raw.startsWith('Oturum yenileme hatası:')
+        ? raw
+        : `Oturum yenileme hatası: ${raw}`;
       setMessage({
-        text: `Oturum yenileme hatası: ${err?.message || 'Bilinmeyen hata'}`,
+        text: cleanMsg,
         type: 'error'
       });
     } finally {

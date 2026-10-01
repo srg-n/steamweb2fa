@@ -331,18 +331,19 @@ export function AccountsPage() {
           <div className="relative flex-1 w-full">
             <Search
               size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-base-400"
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base-400 pointer-events-none"
             />
             <input
               type="text"
-              className="input-base pl-9 text-xs sm:text-sm h-10 w-full"
+              className="input-base !pl-10 text-xs sm:text-sm h-10 w-full"
               placeholder={t('accounts.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
             {searchQuery && (
               <button
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-base-400 hover:text-base-600"
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-base-400 hover:text-base-600 dark:hover:text-white transition p-1"
                 onClick={() => setSearchQuery('')}
               >
                 <X size={14} />

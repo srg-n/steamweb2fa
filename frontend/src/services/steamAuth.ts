@@ -86,6 +86,21 @@ export interface SteamLoginResult {
   error?: string;
 }
 
+function isJwtExpired(token?: string): boolean {
+  if (!token || token.split('.').length < 2) return true;
+  try {
+    const payloadBase64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const jsonStr = atob(payloadBase64);
+    const payload = JSON.parse(jsonStr);
+    if (typeof payload?.exp === 'number') {
+      return payload.exp * 1000 <= Date.now() + 60000;
+    }
+  } catch {
+    return true;
+  }
+  return false;
+}
+
 export class SteamAuthService {
   /**
    * Generates a fresh JWT access_token from api.steampowered.com using a refreshToken.
@@ -128,8 +143,12 @@ export class SteamAuthService {
 
   /**
    * Finalizes Steam JWT authentication on steamcommunity.com.
+   * Extracts modern access tokens directly from transfer_info params without depending on Set-Cookie headers.
    */
-  async finalizeAuthSession(refreshToken: string, settings: AppSettings): Promise<{ steamLoginSecure?: string; sessionid: string }> {
+  async finalizeAuthSession(
+    refreshToken: string,
+    settings: AppSettings
+  ): Promise<{ steamLoginSecure?: string; sessionid: string; oauthToken?: string; steamID?: string }> {
     const randomSessionId = Array.from(crypto.getRandomValues(new Uint8Array(12)))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
@@ -172,55 +191,82 @@ export class SteamAuthService {
 
     const data = await res.json();
     let extractedCookie = '';
+    let extractedSteamID = data?.steamID || '';
+    let extractedAuthToken = '';
 
     // Check Set-Cookie forwarded by Cloudflare Worker
     const setCookieHeader = res.headers.get('x-steam-set-cookie') || res.headers.get('set-cookie');
     if (setCookieHeader) {
       const match = setCookieHeader.match(/steamLoginSecure=([^;]+)/);
       if (match && match[1]) {
-        extractedCookie = match[1];
+        extractedCookie = decodeURIComponent(match[1]);
       }
     }
 
     // Follow transfer_info specifically to steamcommunity.com/login/settoken
     if (Array.isArray(data?.transfer_info)) {
       for (const info of data.transfer_info) {
-        if (!info.url || !info.params) continue;
-        if (!info.url.includes('steamcommunity.com')) continue;
-        const transferTarget = info.url;
-        const transferUrl = applyCorsProxy(transferTarget, settings.corsProxyUrl);
-        const transferBody = new URLSearchParams(info.params);
+        if (!info.params) continue;
 
-        try {
-          const tRes = await fetch(transferUrl, {
-            method: 'POST',
-            headers,
-            body: transferBody.toString()
-          });
-
-          const tCookieHeader = tRes.headers.get('x-steam-set-cookie') || tRes.headers.get('set-cookie');
-          if (tCookieHeader) {
-            const match = tCookieHeader.match(/steamLoginSecure=([^;]+)/);
-            if (match && match[1]) {
-              extractedCookie = decodeURIComponent(match[1]);
-              break;
-            }
+        // params contains { nonce, auth, steamID }
+        if (info.params.auth) {
+          extractedAuthToken = info.params.auth;
+          if (info.params.steamID) {
+            extractedSteamID = info.params.steamID;
           }
-        } catch {
-          // Continue
+        }
+
+        const isCommunity = info.url && info.url.includes('steamcommunity.com');
+        if (isCommunity && info.params.auth) {
+          extractedAuthToken = info.params.auth;
+          if (info.params.steamID) {
+            extractedSteamID = info.params.steamID;
+          }
+        }
+
+        // Ping settoken so Steam server-side session registers
+        if (info.url) {
+          const transferTarget = info.url;
+          const transferUrl = applyCorsProxy(transferTarget, settings.corsProxyUrl);
+          const transferBody = new URLSearchParams(info.params);
+
+          try {
+            const tRes = await fetch(transferUrl, {
+              method: 'POST',
+              headers,
+              body: transferBody.toString()
+            });
+
+            const tCookieHeader = tRes.headers.get('x-steam-set-cookie') || tRes.headers.get('set-cookie');
+            if (tCookieHeader) {
+              const match = tCookieHeader.match(/steamLoginSecure=([^;]+)/);
+              if (match && match[1]) {
+                extractedCookie = decodeURIComponent(match[1]);
+              }
+            }
+          } catch {
+            // Continue
+          }
         }
       }
     }
 
+    // Modern Steam uses steamid%7C%7Caccess_token for steamLoginSecure
+    if (!extractedCookie && extractedSteamID && extractedAuthToken) {
+      extractedCookie = `${extractedSteamID}%7C%7C${extractedAuthToken}`;
+    }
+
     return {
       steamLoginSecure: extractedCookie || undefined,
-      sessionid: randomSessionId
+      sessionid: randomSessionId,
+      oauthToken: extractedAuthToken || undefined,
+      steamID: extractedSteamID || undefined
     };
   }
 
   /**
    * Refreshes steamLoginSecure directly using stored refreshToken (zero password needed).
-   * Uses GenerateAccessTokenForApp to fetch real JWT access token directly as JSON.
+   * WebBrowser platform tokens refresh via login.steampowered.com/jwt/finalizelogin
    */
   async refreshWithRefreshToken(account: StoredAccount, settings: AppSettings): Promise<SteamLoginResult> {
     const refreshToken = account.session?.refreshToken;
@@ -229,71 +275,107 @@ export class SteamAuthService {
     }
 
     const steamid = account.steamid || '0';
-
-    try {
-      // 1. Fetch fresh JWT access token via official Steam Web API
-      const newAccessToken = await this.generateAccessToken(steamid, refreshToken, settings);
-      const steamLoginSecure = `${steamid}%7C%7C${newAccessToken}`;
-      const sessionid = account.session?.sessionid || Array.from(crypto.getRandomValues(new Uint8Array(12)))
+    const fallbackSessionId =
+      account.session?.sessionid ||
+      Array.from(crypto.getRandomValues(new Uint8Array(12)))
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
 
-      // 2. Best-effort session registration on steamcommunity.com
-      try {
-        await this.finalizeAuthSession(refreshToken, settings);
-      } catch {
-        // Non-critical: modern steamcommunity accepts direct JWT cookie
-      }
+    // Strategy 1: Finalize auth session via login.steampowered.com/jwt/finalizelogin
+    // This is the official flow for WebBrowser platform tokens used by Steam web logins.
+    try {
+      const fin = await this.finalizeAuthSession(refreshToken, settings);
+      if (fin.steamLoginSecure) {
+        const freshOauthToken = fin.oauthToken || account.session?.oauthToken;
+        const freshSteamId =
+          fin.steamID && fin.steamID !== '0'
+            ? fin.steamID
+            : steamid !== '0'
+            ? steamid
+            : account.steamid;
 
+        const updatedAccount: StoredAccount = {
+          ...account,
+          steamid: freshSteamId,
+          session: {
+            ...account.session,
+            steamLoginSecure: fin.steamLoginSecure,
+            oauthToken: freshOauthToken,
+            refreshToken,
+            sessionid: fin.sessionid || fallbackSessionId
+          },
+          updatedAt: new Date().toISOString()
+        };
+
+        await db.saveAccount(updatedAccount);
+        return {
+          success: true,
+          steamLoginSecure: fin.steamLoginSecure,
+          oauthToken: freshOauthToken,
+          refreshToken,
+          sessionid: fin.sessionid || fallbackSessionId
+        };
+      }
+    } catch (finErr: any) {
+      console.warn('finalizeAuthSession failed during refresh:', finErr?.message || finErr);
+    }
+
+    // Strategy 2: GenerateAccessTokenForApp (for mobile/app scoped tokens)
+    try {
+      const newAccessToken = await this.generateAccessToken(steamid, refreshToken, settings);
+      if (newAccessToken) {
+        const steamLoginSecure = `${steamid}%7C%7C${newAccessToken}`;
+        const updatedAccount: StoredAccount = {
+          ...account,
+          session: {
+            ...account.session,
+            steamLoginSecure,
+            oauthToken: newAccessToken,
+            refreshToken,
+            sessionid: fallbackSessionId
+          },
+          updatedAt: new Date().toISOString()
+        };
+
+        await db.saveAccount(updatedAccount);
+        return {
+          success: true,
+          steamLoginSecure,
+          oauthToken: newAccessToken,
+          refreshToken,
+          sessionid: fallbackSessionId
+        };
+      }
+    } catch (genErr: any) {
+      console.warn('generateAccessToken notice:', genErr?.message || genErr);
+    }
+
+    // Strategy 3: Check if existing oauthToken is still active and valid
+    if (account.session?.oauthToken && !isJwtExpired(account.session.oauthToken)) {
+      const steamLoginSecure = `${steamid}%7C%7C${account.session.oauthToken}`;
       const updatedAccount: StoredAccount = {
         ...account,
         session: {
           ...account.session,
           steamLoginSecure,
-          oauthToken: newAccessToken,
-          refreshToken,
-          sessionid
+          sessionid: fallbackSessionId
         },
         updatedAt: new Date().toISOString()
       };
-
       await db.saveAccount(updatedAccount);
       return {
         success: true,
         steamLoginSecure,
-        oauthToken: newAccessToken,
+        oauthToken: account.session.oauthToken,
         refreshToken,
-        sessionid
-      };
-    } catch (err: any) {
-      // Fallback: try finalizeAuthSession if GenerateAccessTokenForApp fails
-      try {
-        const fin = await this.finalizeAuthSession(refreshToken, settings);
-        if (fin.steamLoginSecure) {
-          const updatedAccount: StoredAccount = {
-            ...account,
-            session: {
-              ...account.session,
-              steamLoginSecure: fin.steamLoginSecure,
-              sessionid: account.session?.sessionid || fin.sessionid
-            },
-            updatedAt: new Date().toISOString()
-          };
-          await db.saveAccount(updatedAccount);
-          return {
-            success: true,
-            steamLoginSecure: fin.steamLoginSecure,
-            refreshToken,
-            sessionid: fin.sessionid
-          };
-        }
-      } catch {}
-
-      return {
-        success: false,
-        error: `Oturum yenileme hatası: ${err?.message || 'RefreshToken süresi dolmuş. Lütfen şifrenizle giriş yapın.'}`
+        sessionid: fallbackSessionId
       };
     }
+
+    return {
+      success: false,
+      error: 'Refresh token süresi dolmuş veya geçersiz. Lütfen şifrenizle giriş yapın.'
+    };
   }
 
   /**
@@ -477,6 +559,9 @@ export class SteamAuthService {
       const fin = await this.finalizeAuthSession(refreshToken, settings);
       if (fin.steamLoginSecure) {
         steamLoginSecure = fin.steamLoginSecure;
+      }
+      if (fin.oauthToken && !accessToken) {
+        accessToken = fin.oauthToken;
       }
     } catch (finalizeErr) {
       console.warn('finalizeAuthSession non-critical notice:', finalizeErr);

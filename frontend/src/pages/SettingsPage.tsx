@@ -160,8 +160,10 @@ export function SettingsPage() {
     try {
       const text = await file.text();
       const res = await settingsApi.importBackup(text);
+      const freshSettings = await settingsApi.get();
+      setSettings(freshSettings);
       setMessage({
-        text: `Restored ${res.accountsImported} accounts from backup.`,
+        text: `Restored ${res.accountsImported} accounts and proxy settings from backup.`,
         type: 'success'
       });
     } catch (err: any) {

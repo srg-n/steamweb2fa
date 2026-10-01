@@ -400,7 +400,11 @@ class ClientDatabase {
       accounts,
       folders,
       tags,
-      settings
+      settings: {
+        ...settings,
+        corsProxyUrl: settings.corsProxyUrl || '',
+        corsProxySecret: settings.corsProxySecret || ''
+      }
     };
 
     return JSON.stringify(backup, null, 2);
@@ -425,7 +429,11 @@ class ClientDatabase {
       for (const t of data.tags) await this.saveTag(t);
     }
     if (data.settings) {
-      await this.saveSettings(data.settings);
+      await this.saveSettings({
+        ...data.settings,
+        corsProxyUrl: data.settings.corsProxyUrl ?? '',
+        corsProxySecret: data.settings.corsProxySecret ?? ''
+      });
     }
 
     return { accountsImported: data.accounts.length };
