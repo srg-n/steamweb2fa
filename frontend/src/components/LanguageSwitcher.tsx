@@ -2,15 +2,20 @@ import { useState, useRef, useEffect } from 'react';
 import { Globe, ChevronDown, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
+import { SUPPORTED_LANGUAGES, isSupportedLanguage } from '../i18n';
 
 type Props = {
-  onChange?: (lang: 'en' | 'ru' | 'tr') => void;
+  onChange?: (lang: SupportedLanguage) => void;
 };
 
-const LANGUAGES = [
-  { code: 'tr' as const, label: 'TR', full: 'Türkçe' },
-  { code: 'en' as const, label: 'EN', full: 'English' },
-  { code: 'ru' as const, label: 'RU', full: 'Русский' }
+/**
+ * Endonyms on purpose: each option is written in its own language so a user
+ * who cannot read the current UI can still find their language.
+ */
+const LANGUAGES: Array<{ code: SupportedLanguage; label: string; full: string }> = [
+  { code: 'tr', label: 'TR', full: 'Türkçe' },
+  { code: 'en', label: 'EN', full: 'English' },
+  { code: 'ru', label: 'RU', full: 'Русский' }
 ];
 
 export function LanguageSwitcher({ onChange }: Props) {
@@ -18,13 +23,9 @@ export function LanguageSwitcher({ onChange }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const current = i18n.language?.startsWith('tr')
-    ? 'tr'
-    : i18n.language?.startsWith('ru')
-      ? 'ru'
-      : 'en';
+  const current = (isSupportedLanguage(i18n.resolvedLanguage) ? i18n.resolvedLanguage : 'en') as SupportedLanguage;
 
-  const setLang = (next: 'en' | 'ru' | 'tr') => {
+  const setLang = (next: SupportedLanguage) => {
     setIsOpen(false);
     if (next === current) return;
     void i18n.changeLanguage(next);

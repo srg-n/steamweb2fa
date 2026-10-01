@@ -1,4 +1,16 @@
 import type { StoredAccount, AppSettings } from './storage';
+import i18n from '../i18n';
+
+/**
+ * Builds a user-facing error for a failed Steam confirmation response.
+ * Keys live in the translation files so the message follows the selected
+ * language instead of being hardcoded in one of them.
+ */
+function describeSteamError(data: any, alias: string): string {
+  if (data?.needauth) return i18n.t('session.expiredNeedauth', { alias });
+  if (data?.message) return i18n.t('session.noList', { alias, message: data.message });
+  return i18n.t('session.noList', { alias, message: 'success: false' });
+}
 import {
   generateConfirmationKey,
   getDeviceId,
@@ -114,7 +126,7 @@ export async function fetchWithRateLimit(
           attempt++;
           continue;
         }
-        throw new Error('RATE_LIMITED: Steam sunucuları çok fazla istek nedeniyle geçici hız sınırı (HTTP 429 Too Many Requests) uyguladı. Lütfen 30-60 saniye bekleyin.');
+        throw new Error(`RATE_LIMITED: ${i18n.t('session.rateLimited', { seconds: 30 })}`);
       }
 
       return response;
@@ -193,11 +205,11 @@ export class SteamClient {
    */
   async getLegacyConfirmations(account: StoredAccount, settings: AppSettings): Promise<ConfirmationItem[]> {
     if (!account.identitySecret) {
-      throw new Error(`"${account.alias}" hesabında identity_secret tanımlı değil`);
+      throw new Error(i18n.t('session.missingIdentitySecret', { alias: account.alias }));
     }
 
     if (!account.session?.steamLoginSecure) {
-      throw new Error(`"${account.alias}" hesabında "steamLoginSecure" çerezi tanımlı değil. Takas ve pazar onaylarını görebilmek için Hesap Detayı sayfasından Steam oturum çerezinizi ekleyin.`);
+      throw new Error(i18n.t('session.missingCookie', { alias: account.alias }));
     }
 
     const steamid = account.steamid || '0';
@@ -255,9 +267,9 @@ export class SteamClient {
 
     if (!response.ok) {
       if (response.status === 429) {
-        throw new Error('RATE_LIMITED: Steam onay isteklerine hız sınırı (HTTP 429) uyguladı. Lütfen 30 saniye bekleyin.');
+        throw new Error(`RATE_LIMITED: ${i18n.t('session.rateLimited', { seconds: 30 })}`);
       }
-      throw new Error(`Steam onay isteği başarısız oldu: HTTP ${response.status}`);
+      throw new Error(i18n.t('session.httpFail', { status: response.status }));
     }
 
     let data: any;
@@ -267,12 +279,11 @@ export class SteamClient {
       if (!settings.corsProxyUrl) {
         throw new Error('CORS_BLOCKED');
       }
-      throw new Error(`"${account.alias}" için Steam oturumu geçersiz veya süresi dolmuş. Lütfen steamLoginSecure çerezinizi yenileyin.`);
+      throw new Error(i18n.t('session.expired', { alias: account.alias }));
     }
 
     if (!data.success) {
-      const errMsg = data.message || (data.needauth ? `"${account.alias}" hesabının Steam oturum süresi dolmuş (needauth: true). Lütfen steamLoginSecure çerezini yenileyin.` : `"${account.alias}" için Steam onay listesini vermedi (${data.message || 'success: false'}). Oturum çerezinizi kontrol edin.`);
-      throw new Error(errMsg);
+      throw new Error(describeSteamError(data, account.alias));
     }
 
     const confList = Array.isArray(data.conf) ? data.conf : [];
@@ -475,9 +486,9 @@ export class SteamClient {
 
     if (!response.ok) {
       if (response.status === 429) {
-        throw new Error('RATE_LIMITED: Steam yanıt işlemine hız sınırı (HTTP 429) uyguladı. Lütfen birkaç saniye bekleyin.');
+        throw new Error(`RATE_LIMITED: ${i18n.t('session.rateLimitedOp')}`);
       }
-      throw new Error(`Failed to respond to confirmation: HTTP ${response.status}`);
+      throw new Error(i18n.t('session.respondHttpFail', { status: response.status }));
     }
 
     const data = await response.json();
@@ -496,7 +507,7 @@ export class SteamClient {
   ): Promise<boolean> {
     const accessToken = account.session?.oauthToken;
     if (!accessToken) {
-      throw new Error('Missing access token for auth session confirmation');
+      throw new Error(i18n.t('session.missingAccessToken'));
     }
 
     let clientId = confirmationId.replace('auth:', '');
@@ -539,9 +550,9 @@ export class SteamClient {
 
     if (!response.ok) {
       if (response.status === 429) {
-        throw new Error('RATE_LIMITED: Steam oturum onayına hız sınırı (HTTP 429) uyguladı.');
+        throw new Error(`RATE_LIMITED: ${i18n.t('session.rateLimitedAuth')}`);
       }
-      throw new Error(`Failed to update auth session: HTTP ${response.status}`);
+      throw new Error(i18n.t('session.authHttpFail', { status: response.status }));
     }
 
     return true;

@@ -8,12 +8,24 @@ import { ThemeToggle } from './ThemeToggle';
 
 const i18nMock = vi.hoisted(() => ({
   language: 'en',
+  resolvedLanguage: 'en' as string | undefined,
   changeLanguage: vi.fn(async (next: string) => {
     i18nMock.language = next;
-  })
+    i18nMock.resolvedLanguage = next;
+  }),
+  on: vi.fn(),
+  off: vi.fn(),
+  use: vi.fn(function use() {
+    return this;
+  }),
+  init: vi.fn(),
+  t: vi.fn((key: string) => key)
 }));
 
 vi.mock('react-i18next', () => ({
+  // LanguageSwitcher imports ../i18n, which calls .use(initReactI18next).
+  // Without these stubs the i18next singleton throws on import.
+  initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
     t: (key: string) => {
       const labels: Record<string, string> = {
@@ -33,6 +45,7 @@ describe('preference controls', () => {
     localStorage.clear();
     document.documentElement.className = '';
     i18nMock.language = 'en';
+    i18nMock.resolvedLanguage = 'en';
     i18nMock.changeLanguage.mockClear();
   });
 

@@ -1,5 +1,6 @@
 import { db, type StoredAccount, type AppSettings } from './storage';
 import { applyCorsProxy, formatSteamLoginCookie } from './steamClient';
+import i18n from '../i18n';
 import { generateSteamGuardCode, generateAuthSessionSignature, generateConfirmationKey, getDeviceId, uint8ArrayToBase64 } from './steamCrypto';
 
 function hexToBigInt(hex: string): bigint {

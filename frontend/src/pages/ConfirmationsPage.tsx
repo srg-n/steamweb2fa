@@ -90,14 +90,14 @@ export function ConfirmationsPage() {
         setIsCorsBlocked(true);
       } else {
         setMessage({
-          text: err?.message || 'Failed to fetch Steam confirmations.',
+          text: err?.message || t('confirmations.fetchFailed'),
           type: 'error'
         });
       }
     } finally {
       setLoading(false);
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, t]);
 
   useEffect(() => {
     loadAccounts();
@@ -122,12 +122,12 @@ export function ConfirmationsPage() {
       if (success) {
         setConfirmations((prev) => prev.filter((c) => c.id !== item.id));
         setMessage({
-          text: accept ? 'Confirmation accepted successfully!' : 'Confirmation declined.',
+          text: accept ? t('confirmations.acceptedToast') : t('confirmations.rejectedToast'),
           type: 'success'
         });
       } else {
         setMessage({
-          text: 'Steam returned failure for this operation.',
+          text: t('confirmations.steamFailure'),
           type: 'error'
         });
       }
@@ -137,7 +137,7 @@ export function ConfirmationsPage() {
         setRateLimitTimer(45);
       }
       setMessage({
-        text: err?.message || 'Error communicating with Steam.',
+        text: err?.message || t('confirmations.commError'),
         type: 'error'
       });
     } finally {
@@ -245,7 +245,7 @@ export function ConfirmationsPage() {
             {t('confirmations.title')}
           </h1>
           <p className="text-xs sm:text-sm text-base-500">
-            Real-time Steam trade, market, and login mobile confirmations.
+            {t('confirmations.subtitle')}
           </p>
         </div>
 
@@ -269,12 +269,12 @@ export function ConfirmationsPage() {
             className="input-base text-xs py-1.5 h-8 sm:h-9 w-auto"
             value={autoRefreshSec}
             onChange={(e) => setAutoRefreshSec(Number(e.target.value))}
-            title="Auto refresh interval"
+            title={t('confirmations.autoRefreshTitle')}
           >
-            <option value={0}>Auto: Off</option>
-            <option value={15}>Auto: 15s</option>
-            <option value={30}>Auto: 30s</option>
-            <option value={60}>Auto: 60s</option>
+            <option value={0}>{t('confirmations.autoOff')}</option>
+            <option value={15}>{t('confirmations.autoSeconds', { seconds: 15 })}</option>
+            <option value={30}>{t('confirmations.autoSeconds', { seconds: 30 })}</option>
+            <option value={60}>{t('confirmations.autoSeconds', { seconds: 60 })}</option>
           </select>
 
           {/* Direct Steam Confirmation Link */}
@@ -283,10 +283,10 @@ export function ConfirmationsPage() {
             target="_blank"
             rel="noopener noreferrer"
             className="button-secondary h-8 sm:h-9 px-2.5 sm:px-3 text-xs gap-1.5 flex items-center hover:border-accent-500 hover:text-accent-500 rounded-xl"
-            title="Steam resmi mobil onay sayfasını yeni sekmede aç"
+            title={t('confirmations.openOnSteam')}
           >
             <ExternalLink size={13} />
-            <span className="hidden xs:inline">Steam'de Aç</span>
+            <span className="hidden xs:inline">{t('confirmations.openOnSteamShort')}</span>
           </a>
 
           {/* Manual Refresh Button */}
@@ -309,10 +309,12 @@ export function ConfirmationsPage() {
                 : 'text-base-400'
             }`}
             onClick={() => setAutoConfirmEnabled(!autoConfirmEnabled)}
-            title="Yeni gelen tüm pazar ve takas onaylarını otomatik kabul et"
+            title={t('confirmations.autoTitle')}
           >
             <Zap size={13} className={autoConfirmEnabled ? 'text-amber-400 fill-amber-400' : ''} />
-            <span>{autoConfirmEnabled ? 'Oto: Açık' : 'Oto: Kapalı'}</span>
+            <span>
+              {autoConfirmEnabled ? t('confirmations.autoOn') : t('confirmations.autoOffShort')}
+            </span>
           </Button>
 
           {/* Batch Actions */}
@@ -371,7 +373,7 @@ export function ConfirmationsPage() {
             />
           </div>
           <div className="text-[11px] text-base-400 flex justify-between">
-            <span>Rate-limit safe</span>
+            <span>{t('confirmations.rateLimitSafe')}</span>
             <span className="text-emerald-400 font-mono font-bold">
               {t('confirmations.batchSuccessCount', { count: batchProgress.successCount })}
             </span>
@@ -549,7 +551,7 @@ export function ConfirmationsPage() {
               {t('confirmations.noPending')}
             </h3>
             <p className="mt-1 text-xs text-base-500 dark:text-base-400 max-w-sm mx-auto leading-relaxed">
-              Trades, market listings, or Steam sign-in confirmation requests will appear here in real time.
+              {t('confirmations.noPendingHint')}
             </p>
             <Button
               variant="secondary"
@@ -557,7 +559,7 @@ export function ConfirmationsPage() {
               onClick={fetchConfirmations}
             >
               <RefreshCw size={13} />
-              Check Again
+              {t('confirmations.checkAgain')}
             </Button>
           </div>
         )}

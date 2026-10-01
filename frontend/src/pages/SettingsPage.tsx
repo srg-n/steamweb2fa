@@ -18,6 +18,7 @@ import {
   Server
 } from 'lucide-react';
 import { settingsApi } from '../api';
+import { isSupportedLanguage, type SupportedLanguage } from '../i18n';
 import type { AppSettings } from '../services/storage';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -87,12 +88,16 @@ export function SettingsPage() {
       const elapsed = Math.round(performance.now() - start);
       setTestResult({
         ok: true,
-        message: `${t('common.success')}! Latency: ${elapsed}ms | Steam Time: ${new Date(res.serverTime * 1000).toLocaleTimeString()} (Offset: ${res.offsetSeconds}s)`
+        message: t('settings.testResultOk', {
+          latency: elapsed,
+          time: new Date(res.serverTime * 1000).toLocaleTimeString(),
+          offset: res.offsetSeconds
+        })
       });
     } catch (err: any) {
       setTestResult({
         ok: false,
-        message: err?.message || 'Connection error (CORS or Network)'
+        message: err?.message || t('settings.testResultFail')
       });
     } finally {
       setTestBusy(false);
@@ -132,7 +137,7 @@ export function SettingsPage() {
         // Our own secret was rejected by the worker
         setProxyTestResult({
           ok: false,
-          message: `Worker rejected request (HTTP 401). X-Proxy-Secret mismatch — check PROXY_SECRET in Cloudflare environment variables.`
+          message: t('settings.proxyTest401')
         });
         return;
       }
@@ -140,7 +145,7 @@ export function SettingsPage() {
       if (!res.ok) {
         setProxyTestResult({
           ok: false,
-          message: `Worker returned HTTP ${res.status}`
+          message: t('settings.proxyTestHttp', { status: res.status })
         });
         return;
       }
@@ -158,31 +163,33 @@ export function SettingsPage() {
             // Worker correctly rejected an unauthenticated request — secret is enforced ✓
             setProxyTestResult({
               ok: true,
-              message: `Worker OK! Latency: ${elapsed}ms — Secret protection verified ✓`
+              message: t('settings.proxyTestOkSecret', { latency: elapsed })
             });
           } else {
             // Worker responded 200 even without secret — either PROXY_SECRET not set in Cloudflare, or old worker
             setProxyTestResult({
               ok: true,
-              message: `Worker OK! Latency: ${elapsed}ms — ⚠ Worker accepted request without secret. PROXY_SECRET may not be set in Cloudflare env vars.`
+              message: t('settings.proxyTestOkNoSecret', { latency: elapsed })
             });
           }
         } catch {
           setProxyTestResult({
             ok: true,
-            message: `Worker OK! Latency: ${elapsed}ms (HTTP ${res.status})`
+            message: t('settings.proxyTestOkPlain', { latency: elapsed, status: res.status })
           });
         }
       } else {
         setProxyTestResult({
           ok: true,
-          message: `Worker OK! Latency: ${elapsed}ms (HTTP ${res.status}) — No secret configured (open proxy).`
+          message: t('settings.proxyTestOkOpen', { latency: elapsed, status: res.status })
         });
       }
     } catch (err: any) {
       setProxyTestResult({
         ok: false,
-        message: `Worker error: ${err?.message || 'Network error'}`
+        message: t('settings.proxyTestError', {
+          message: err?.message || t('settings.proxyTestNetworkError')
+        })
       });
     } finally {
       setProxyTestBusy(false);
@@ -200,23 +207,21 @@ export function SettingsPage() {
       const freshSettings = await settingsApi.get();
       setSettings(freshSettings);
       setMessage({
-        text: `Restored ${res.accountsImported} accounts and proxy settings from backup.`,
+        text: t('settings.restoreSuccess', { count: res.accountsImported }),
         type: 'success'
       });
     } catch (err: any) {
       setMessage({
-        text: `Import failed: ${err?.message || 'Invalid backup file'}`,
+        text: t('settings.restoreFailed', {
+          message: err?.message || t('settings.invalidBackup')
+        }),
         type: 'error'
       });
     }
   };
 
   const handleClearAll = async () => {
-    if (
-      !window.confirm(
-        'WARNING: This will permanently delete ALL accounts, settings, and local data from this browser!\n\nAre you sure?'
-      )
-    ) {
+    if (!window.confirm(t('settings.wipeConfirm'))) {
       return;
     }
     localStorage.clear();
@@ -235,7 +240,7 @@ export function SettingsPage() {
           {t('settings.title')}
         </h1>
         <p className="text-xs sm:text-sm text-base-500">
-          Configure Steam connection mode, clock synchronization, offline backups, and appearance.
+          {t('settings.subtitle')}
         </p>
       </div>
 
@@ -355,7 +360,7 @@ export function SettingsPage() {
               <label className="text-xs font-medium text-base-400">
                 {t('settings.proxySecretLabel')}
               </label>
-              <span className="text-[10px] text-base-500 font-normal">Security & Quota</span>
+              <span className="text-[10px] text-base-500 font-normal">{t('settings.securityQuota')}</span>
             </div>
             <Input
               type="password"
@@ -382,7 +387,10 @@ export function SettingsPage() {
           )}
 
           <p className="text-[11px] text-base-500">
-            Örnekler: <code>https://steam-proxy.kullaniciadi.workers.dev/</code> veya <code>http://localhost:8080/</code>
+            {t('settings.proxyExamples', {
+              cloudflare: 'https://steam-proxy.username.workers.dev/',
+              localhost: 'http://localhost:8080/'
+            })}
           </p>
         </div>
       </Card>
@@ -427,7 +435,7 @@ export function SettingsPage() {
                 className="input-base w-16 h-8 text-xs font-mono text-center"
                 value={settings.timeOffsetSec}
                 onChange={(e) => handleUpdate({ timeOffsetSec: Number(e.target.value) || 0 })}
-                title="Offset in seconds (+ / -)"
+                title={t('settings.manualOffsetTitle')}
               />
               <span>s</span>
             </div>
@@ -459,16 +467,18 @@ export function SettingsPage() {
             </label>
             <select
               className="input-base text-xs sm:text-sm h-10 w-full"
-              value={settings.language}
+              value={isSupportedLanguage(settings.language) ? settings.language : 'en'}
               onChange={(e) => {
-                const lang = e.target.value as 'en' | 'ru' | 'tr';
+                if (!isSupportedLanguage(e.target.value)) return;
+                const lang: SupportedLanguage = e.target.value;
                 void i18n.changeLanguage(lang);
                 void handleUpdate({ language: lang });
               }}
             >
-              <option value="en">English (EN)</option>
-              <option value="tr">Türkçe (TR)</option>
-              <option value="ru">Русский (RU)</option>
+              {/* Endonyms: a user who cannot read the current UI can still find their language. */}
+              <option value="en">English</option>
+              <option value="tr">Türkçe</option>
+              <option value="ru">Русский</option>
             </select>
           </div>
 
@@ -485,8 +495,8 @@ export function SettingsPage() {
                 void handleUpdate({ theme: th });
               }}
             >
-              <option value="dark">Dark Theme (Cyber / Steam)</option>
-              <option value="light">Light Theme</option>
+              <option value="dark">{t('settings.themeDark')}</option>
+              <option value="light">{t('settings.themeLight')}</option>
             </select>
           </div>
         </div>
@@ -560,7 +570,7 @@ export function SettingsPage() {
               {t('settings.pwaInstall')}
             </h3>
             <p className="text-xs text-base-500 mt-0.5">
-              Install SteamGuard directly onto your phone or PC desktop for instant access without a browser bar.
+              {t('settings.pwaInstallDesc')}
             </p>
           </div>
           <Button

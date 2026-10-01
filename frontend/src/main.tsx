@@ -13,20 +13,44 @@ const getInitialMemoryPath = () => {
   return rawHash ? `/${rawHash}` : '/accounts';
 };
 
-// PWA Registration for installability on HTTP/HTTPS (disabled on file://)
+// PWA registration. Disabled on file:// where manifest and service workers
+// are unavailable.
 if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
-  // Ensure manifest link exists
   if (!document.querySelector('link[rel="manifest"]')) {
     const link = document.createElement('link');
     link.rel = 'manifest';
-    link.href = './manifest.json';
+    link.href = new URL('manifest.json', document.baseURI).href;
     document.head.appendChild(link);
   }
 
-  // Register lightweight service worker to enable Chrome PWA install prompt
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+      const swUrl = new URL('sw.js', document.baseURI).href;
+      navigator.serviceWorker
+        .register(swUrl, { scope: new URL('./', document.baseURI).href })
+        .then((registration) => {
+          // Pick up a new worker as soon as it is installed instead of waiting
+          // for every tab to close.
+          registration.addEventListener('updatefound', () => {
+            const installing = registration.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', () => {
+              if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                installing.postMessage('SKIP_WAITING');
+              }
+            });
+          });
+        })
+        .catch(() => {
+          // Offline shell is a nice-to-have; the app still works without it.
+        });
+    });
+
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      window.location.reload();
     });
   }
 }

@@ -20,6 +20,7 @@ import { settingsApi, steamApi } from '../api';
 export function AppLayout() {
   const { t, i18n } = useTranslation();
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const [lang, setLang] = useState<string>(i18n.resolvedLanguage || i18n.language);
   const [timeOffset, setTimeOffset] = useState<number>(0);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [canInstall, setCanInstall] = useState(false);
@@ -45,14 +46,29 @@ export function AppLayout() {
     };
   }, []);
 
-  // Fetch initial settings & time offset
+  // Track language changes so useMemo labels below recompute.
   useEffect(() => {
+    const onChanged = (next: string) => setLang(next);
+    i18n.on('languageChanged', onChanged);
+    return () => {
+      i18n.off('languageChanged', onChanged);
+    };
+  }, [i18n]);
+
+  // Fetch initial settings & time offset. Stored settings are the source of
+  // truth for the language, overriding whatever the detector picked.
+  useEffect(() => {
+    let cancelled = false;
     settingsApi.get().then((s) => {
+      if (cancelled) return;
       setTimeOffset(s.timeOffsetSec || 0);
-      if (s.language && s.language !== i18n.language) {
+      if (s.language && s.language !== i18n.resolvedLanguage) {
         void i18n.changeLanguage(s.language);
       }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [i18n]);
 
   const isStandalone = useMemo(() => {
@@ -112,7 +128,7 @@ export function AppLayout() {
       { to: '/logs', label: t('nav.logs'), icon: FileText },
       { to: '/settings', label: t('nav.settings'), icon: SettingsIcon }
     ],
-    [t, pendingCount]
+    [t, lang, pendingCount]
   );
 
   return (
@@ -131,7 +147,7 @@ export function AppLayout() {
               </span>
             </div>
             <div className="text-[10px] font-semibold uppercase tracking-wider text-base-400 dark:text-base-500">
-              100% In-Browser PWA
+              {t('layout.tagline')}
             </div>
           </div>
         </div>
@@ -174,7 +190,7 @@ export function AppLayout() {
               onClick={handleInstallClick}
             >
               <Download size={14} />
-              {t('settings.installBtn') || 'Uygulamayı Yükle'}
+              {t('settings.installBtn')}
             </Button>
           )}
 
@@ -186,7 +202,7 @@ export function AppLayout() {
               </span>
             </span>
             <span className="font-mono text-[11px] text-base-400 dark:text-base-500">
-              {timeOffset !== 0 ? `${timeOffset > 0 ? '+' : ''}${timeOffset}s` : '0s sync'}
+              {timeOffset !== 0 ? `${timeOffset > 0 ? '+' : ''}${timeOffset}s` : t('layout.syncIdle')}
             </span>
           </div>
         </div>
@@ -209,12 +225,12 @@ export function AppLayout() {
           <div className="hidden md:flex items-center gap-2 text-xs text-base-500 font-medium">
             <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
               <Wifi size={12} />
-              <span>100% In-Browser Engine</span>
+              <span>{t('layout.inBrowserEngine')}</span>
             </span>
             <span className="text-base-700 dark:text-base-700">•</span>
             <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 bg-base-100 dark:bg-base-900 text-base-400 border border-base-200 dark:border-base-800">
               <Clock size={12} />
-              <span>Clock Offset: {timeOffset}s</span>
+              <span>{t('layout.clockOffset', { offset: timeOffset })}</span>
             </span>
           </div>
 
@@ -230,7 +246,13 @@ export function AppLayout() {
                 <span className="hidden min-[420px]:inline text-[11px] font-bold">{t('settings.installBtn')}</span>
               </Button>
             )}
-            <LanguageSwitcher />
+            {/* Persist the choice: stored settings are the source of truth for
+                the active language and are re-applied on load. */}
+            <LanguageSwitcher
+              onChange={(next) => {
+                void settingsApi.update({ language: next });
+              }}
+            />
             <ThemeToggle />
           </div>
         </header>

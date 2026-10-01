@@ -28,7 +28,7 @@ export function LogsPage() {
   }, [loadLogs]);
 
   const handleClear = async () => {
-    if (!window.confirm('Clear all local audit logs?')) return;
+    if (!window.confirm(t('logs.clearConfirm'))) return;
     await logApi.clear();
     setLogs([]);
   };
@@ -58,7 +58,7 @@ export function LogsPage() {
             {t('logs.title')}
           </h1>
           <p className="text-xs sm:text-sm text-base-500">
-            Local browser audit log of code generation, trade confirmations, and session activities.
+            {t('logs.subtitle')}
           </p>
         </div>
 
@@ -67,7 +67,7 @@ export function LogsPage() {
             <>
               <Button variant="secondary" className="h-9 px-3 text-xs gap-1.5" onClick={handleExport}>
                 <Download size={14} />
-                Export
+                {t('logs.export')}
               </Button>
               <Button variant="danger" className="h-9 px-3 text-xs gap-1.5" onClick={handleClear}>
                 <Trash2 size={14} />
@@ -93,7 +93,7 @@ export function LogsPage() {
                 : 'bg-white dark:bg-black border border-base-200 dark:border-white/[0.08] text-base-600 dark:text-base-400 hover:bg-base-100 dark:hover:text-white dark:hover:bg-base-900'
             }`}
           >
-            {cat === 'all' ? t('logs.all') : cat}
+            {t(cat === 'all' ? 'logs.all' : `logs.category.${cat}`)}
           </button>
         ))}
       </div>

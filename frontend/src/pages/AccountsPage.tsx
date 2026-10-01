@@ -187,11 +187,11 @@ export function AccountsPage() {
   // Handle Manual Setup submit
   const handleManualSubmit = async () => {
     if (!manualSharedSecret.trim()) {
-      setImportError('Shared Secret is required');
+      setImportError(t('accounts.requiredSharedSecret'));
       return;
     }
     if (!manualIdentitySecret.trim()) {
-      setImportError('Identity Secret is required');
+      setImportError(t('accounts.requiredIdentitySecret'));
       return;
     }
 
@@ -223,7 +223,7 @@ export function AccountsPage() {
       setManualSteamId('');
       setManualRevocation('');
     } catch (err: any) {
-      setImportError(err?.message || 'Failed to save account');
+      setImportError(err?.message || t('accounts.saveFailed'));
     } finally {
       setImportBusy(false);
     }
@@ -282,7 +282,9 @@ export function AccountsPage() {
             {t('accounts.title')}
           </h1>
           <p className="text-xs sm:text-sm text-base-500">
-            {accounts.length} {accounts.length === 1 ? 'account' : 'accounts'} loaded locally.
+            {t(accounts.length === 1 ? 'accounts.countOne' : 'accounts.countOther', {
+              count: accounts.length
+            })}
           </p>
         </div>
 
@@ -440,11 +442,11 @@ export function AccountsPage() {
                   )}
                   {account.session?.steamLoginSecure ? (
                     <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-bold text-emerald-600 dark:text-emerald-400 text-[10px] tracking-wide">
-                      Session Active
+                      {t('accounts.sessionActive')}
                     </span>
                   ) : (
                     <span className="rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 font-medium text-amber-600 dark:text-amber-400 text-[10px]">
-                      Code Only
+                      {t('accounts.codeOnly')}
                     </span>
                   )}
                 </div>
@@ -463,7 +465,7 @@ export function AccountsPage() {
                 >
                   <div className="flex flex-col text-left">
                     <span className="text-[10px] uppercase font-bold tracking-wider text-base-400 dark:text-base-500">
-                      Steam Guard Code
+                      {t('accounts.guardLabel')}
                     </span>
                     <span
                       className={`font-mono text-2xl sm:text-3xl font-black tracking-widest transition-colors ${
@@ -541,7 +543,7 @@ export function AccountsPage() {
               disabled={importBusy}
             >
               <KeyRound size={16} />
-              Add Demo Account
+              {t('accounts.addDemo')}
             </Button>
           </div>
         </div>
@@ -587,7 +589,7 @@ export function AccountsPage() {
                 }`}
                 onClick={() => setImportTab('paste')}
               >
-                Paste JSON
+                {t('accounts.pasteJson')}
               </button>
               <button
                 type="button"
@@ -635,7 +637,7 @@ export function AccountsPage() {
                     {t('accounts.chooseFile')}
                   </div>
                   <div className="text-xs text-base-400 mt-1">
-                    Multiple files supported (.maFile, .json)
+                    {t('accounts.multiFileHint')}
                   </div>
                   <input
                     ref={fileInputRef}
@@ -654,17 +656,17 @@ export function AccountsPage() {
               <div className="space-y-3">
                 <div>
                   <label className="text-xs font-medium text-base-500 mb-1 block">
-                    Optional Alias / Nickname
+                    {t('accounts.optionalAlias')}
                   </label>
                   <Input
-                    placeholder="e.g. Main Account"
+                    placeholder={t('accounts.aliasPlaceholder')}
                     value={importAlias}
                     onChange={(e) => setImportAlias(e.target.value)}
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-base-500 mb-1 block">
-                    Raw .maFile JSON content
+                    {t('accounts.rawJson')}
                   </label>
                   <textarea
                     rows={6}
@@ -687,7 +689,7 @@ export function AccountsPage() {
                       setIsImportModalOpen(false);
                       setImportJsonText('');
                     } catch (err: any) {
-                      setImportError(err?.message || 'Invalid .maFile JSON');
+                      setImportError(err?.message || t('accounts.invalidMaFile'));
                     } finally {
                       setImportBusy(false);
                     }
@@ -703,40 +705,40 @@ export function AccountsPage() {
               <div className="space-y-2.5 max-h-[60vh] overflow-y-auto pr-1">
                 <div>
                   <label className="text-xs font-medium text-base-500 mb-1 block">
-                    Account Alias / Display Name
+                    {t('accounts.manualAlias')}
                   </label>
                   <Input
-                    placeholder="My Main Account"
+                    placeholder={t('accounts.manualAliasPlaceholder')}
                     value={manualAlias}
                     onChange={(e) => setManualAlias(e.target.value)}
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-base-500 mb-1 block">
-                    Steam Account Name (Login)
+                    {t('accounts.manualUsername')}
                   </label>
                   <Input
-                    placeholder="username123"
+                    placeholder={t('accounts.manualUsernamePlaceholder')}
                     value={manualAccountName}
                     onChange={(e) => setManualAccountName(e.target.value)}
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-base-500 mb-1 block">
-                    Shared Secret (Required for 2FA Codes)
+                    {t('accounts.manualSharedSecret')}
                   </label>
                   <Input
-                    placeholder="e.g. zD4... or hex"
+                    placeholder={t('accounts.manualSharedSecretPlaceholder')}
                     value={manualSharedSecret}
                     onChange={(e) => setManualSharedSecret(e.target.value)}
                   />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-base-500 mb-1 block">
-                    Identity Secret (Required for Trade Confirmations)
+                    {t('accounts.manualIdentitySecret')}
                   </label>
                   <Input
-                    placeholder="e.g. 3sF... or hex"
+                    placeholder={t('accounts.manualIdentitySecretPlaceholder')}
                     value={manualIdentitySecret}
                     onChange={(e) => setManualIdentitySecret(e.target.value)}
                   />
@@ -744,20 +746,20 @@ export function AccountsPage() {
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs font-medium text-base-500 mb-1 block">
-                      SteamID64 (Optional)
+                      {t('accounts.manualSteamId')}
                     </label>
                     <Input
-                      placeholder="76561198..."
+                      placeholder={t('accounts.manualSteamIdPlaceholder')}
                       value={manualSteamId}
                       onChange={(e) => setManualSteamId(e.target.value)}
                     />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-base-500 mb-1 block">
-                      Revocation Code
+                      {t('accounts.manualRevocation')}
                     </label>
                     <Input
-                      placeholder="R12345"
+                      placeholder={t('accounts.manualRevocationPlaceholder')}
                       value={manualRevocation}
                       onChange={(e) => setManualRevocation(e.target.value)}
                     />

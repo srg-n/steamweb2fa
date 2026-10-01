@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run check && npm run icons && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "check:strings": "node scripts/check-hardcoded-strings.mjs",
+    "check": "npm run check:i18n && npm run check:strings",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^13.2.2",

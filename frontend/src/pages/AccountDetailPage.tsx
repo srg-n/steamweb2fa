@@ -176,7 +176,7 @@ export function AccountDetailPage() {
       setMessage({ text: t('accountDetail.sessionSaved'), type: 'success' });
       await loadData();
     } catch (err: any) {
-      setMessage({ text: err?.message || 'Failed to save', type: 'error' });
+      setMessage({ text: err?.message || t('accountDetail.saveFailed'), type: 'error' });
     } finally {
       setSaveBusy(false);
     }
@@ -210,12 +210,12 @@ export function AccountDetailPage() {
         await loadData();
         await loadConfirmations();
       } else {
-        throw new Error(res.error || 'Login failed.');
+        throw new Error(res.error || t('accountDetail.unknownError'));
       }
     } catch (err: any) {
       setAutoLoginStatus(null);
       setMessage({
-        text: `Login error: ${err?.message || 'Unknown error'}`,
+        text: t('accountDetail.loginError', { message: err?.message || t('accountDetail.unknownError') }),
         type: 'error'
       });
     } finally {
@@ -239,12 +239,12 @@ export function AccountDetailPage() {
         await loadData();
         await loadConfirmations();
       } else {
-        throw new Error(res.error || 'Session refresh failed.');
+        throw new Error(res.error || t('accountDetail.unknownError'));
       }
     } catch (err: any) {
-      const raw = err?.message || 'Unknown error';
+      const raw = err?.message || t('accountDetail.unknownError');
       setMessage({
-        text: raw,
+        text: t('accountDetail.refreshError', { message: raw }),
         type: 'error'
       });
     } finally {
@@ -269,7 +269,7 @@ export function AccountDetailPage() {
       await steamApi.respond(accountId, item.id, item.nonce, accept);
       setConfirmations((prev) => prev.filter((c) => c.id !== item.id));
     } catch (err: any) {
-      alert(err?.message || 'Failed to respond');
+      alert(err?.message || t('confirmations.respondFailed'));
     }
   };
 
@@ -289,7 +289,7 @@ export function AccountDetailPage() {
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-base-500 hover:text-accent-500 transition"
         >
           <ArrowLeft size={16} />
-          Back to Accounts
+          {t('accountDetail.backToAccounts')}
         </Link>
 
         <div className="flex items-center gap-2">
@@ -311,13 +311,14 @@ export function AccountDetailPage() {
             <div className="flex items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-black dark:text-white tracking-tight">{account.alias}</h1>
               {account.session?.steamLoginSecure ? (
-                <Badge variant="success" className="text-[10px]">Session Active</Badge>
+                <Badge variant="success" className="text-[10px]">{t('accountDetail.sessionActive')}</Badge>
               ) : (
-                <Badge variant="warning" className="text-[10px]">Session Needed</Badge>
+                <Badge variant="warning" className="text-[10px]">{t('accountDetail.sessionNeeded')}</Badge>
               )}
             </div>
             <p className="text-xs text-base-500 dark:text-base-400 font-mono mt-0.5">
-              Login: {account.accountName} | SteamID: {account.steamid || t('accountDetail.noSteamId')}
+              {t('accountDetail.loginLabel')}: {account.accountName} | SteamID:{' '}
+              {account.steamid || t('accountDetail.noSteamId')}
             </p>
           </div>
 
@@ -332,7 +333,7 @@ export function AccountDetailPage() {
             }`}
           >
             <span className="text-[10px] uppercase font-bold text-base-400 dark:text-base-500 tracking-wider">
-              Steam Guard 2FA
+              {t('accounts.guardLabel2fa')}
             </span>
             <span
               className={`font-mono text-3xl sm:text-4xl font-black tracking-widest my-1 transition-colors ${
@@ -353,7 +354,7 @@ export function AccountDetailPage() {
               ) : (
                 <>
                   <Clock size={12} className={isExpiringSoon ? 'text-danger animate-pulse' : 'text-[#00d2ff]'} />
-                  <span className="font-mono">{secondsLeft}s left</span>
+                  <span className="font-mono">{t('accounts.secondsLeft', { seconds: secondsLeft })}</span>
                 </>
               )}
             </div>
@@ -389,7 +390,7 @@ export function AccountDetailPage() {
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-bold flex items-center gap-2">
-            Confirmations for {account.alias}
+            {t('accountDetail.confirmationsFor', { alias: account.alias })}
             {confirmations.length > 0 && (
               <Badge variant="primary" className="text-xs">
                 {confirmations.length}
@@ -438,7 +439,7 @@ export function AccountDetailPage() {
 
           {confirmations.length === 0 && (
             <div className="text-xs text-base-500 py-3 text-center">
-              No pending confirmations for this account.
+              {t('accountDetail.noConfirmations')}
             </div>
           )}
         </div>
@@ -446,16 +447,16 @@ export function AccountDetailPage() {
 
       {/* Account Settings & Session Form */}
       <Card className="p-5 space-y-4">
-        <h2 className="text-base font-bold">Account Settings & Steam Session</h2>
+        <h2 className="text-base font-bold">{t('accountDetail.settingsSessionTitle')}</h2>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="text-xs font-medium text-base-500 mb-1 block">Alias / Nickname</label>
+            <label className="text-xs font-medium text-base-500 mb-1 block">{t('accountDetail.aliasLabel')}</label>
             <Input value={alias} onChange={(e) => setAlias(e.target.value)} />
           </div>
 
           <div>
-            <label className="text-xs font-medium text-base-500 mb-1 block">Folder</label>
+            <label className="text-xs font-medium text-base-500 mb-1 block">{t('accountDetail.folderLabel')}</label>
             <select
               className="input-base text-xs sm:text-sm h-10 w-full"
               value={selectedFolderId}
@@ -525,10 +526,10 @@ export function AccountDetailPage() {
         {/* Steam Session Cookies Inputs */}
         <div className="pt-2 border-t border-base-200 dark:border-base-800 space-y-3">
           <div className="text-xs font-semibold text-base-700 dark:text-base-300">
-            {t('accountDetail.steamSessionTitle')} (Manuel Düzenleme)
+            {t('accountDetail.steamSessionTitle')} ({t('accountDetail.manualEdit')})
           </div>
           <p className="text-xs text-base-400">
-            Required for checking and approving trade offers without opening the Steam mobile app.
+            {t('accountDetail.manualEditDesc')}
           </p>
 
           <div className="space-y-2">
@@ -537,7 +538,7 @@ export function AccountDetailPage() {
                 {t('accountDetail.steamLoginSecure')}
               </label>
               <Input
-                placeholder="76561198...%7C%7C..."
+                placeholder={t('accountDetail.steamLoginSecurePlaceholder')}
                 value={steamLoginSecure}
                 onChange={(e) => setSteamLoginSecure(e.target.value)}
               />
@@ -549,7 +550,7 @@ export function AccountDetailPage() {
                   {t('accountDetail.sessionId')}
                 </label>
                 <Input
-                  placeholder="32 character hex"
+                  placeholder={t('accountDetail.sessionIdPlaceholder')}
                   value={sessionid}
                   onChange={(e) => setSessionid(e.target.value)}
                 />
@@ -560,7 +561,7 @@ export function AccountDetailPage() {
                   {t('accountDetail.oauthToken')}
                 </label>
                 <Input
-                  placeholder="Bearer token or JWT"
+                  placeholder={t('accountDetail.oauthTokenPlaceholder')}
                   value={oauthToken}
                   onChange={(e) => setOauthToken(e.target.value)}
                 />
@@ -580,7 +581,7 @@ export function AccountDetailPage() {
                 onClick={() => setShowRevocationCode((prev) => !prev)}
               >
                 {showRevocationCode ? <EyeOff size={13} /> : <Eye size={13} />}
-                {showRevocationCode ? 'Hide' : 'Show'}
+                {showRevocationCode ? t('accountDetail.hideRecoveryCode') : t('accountDetail.showRecoveryCode')}
               </button>
             </div>
             {showRevocationCode && (
