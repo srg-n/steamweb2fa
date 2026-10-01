@@ -204,49 +204,76 @@ export class SteamAuthService {
     }
 
     // Follow transfer_info specifically to steamcommunity.com/login/settoken
+    // IMPORTANT: Two-pass approach - community token must NOT be overwritten by store token.
+    // Steam's transfer_info contains domain-specific tokens; we need the steamcommunity.com one.
     if (Array.isArray(data?.transfer_info)) {
+      // Pass 1: Find the steamcommunity.com token specifically (highest priority)
+      let communityAuthToken = '';
+      let communityAuthSteamID = '';
       for (const info of data.transfer_info) {
-        if (!info.params) continue;
-
-        // params contains { nonce, auth, steamID }
-        if (info.params.auth) {
-          extractedAuthToken = info.params.auth;
-          if (info.params.steamID) {
-            extractedSteamID = info.params.steamID;
-          }
-        }
-
-        const isCommunity = info.url && info.url.includes('steamcommunity.com');
+        if (!info.params || !info.url) continue;
+        const isCommunity = info.url.includes('steamcommunity.com');
         if (isCommunity && info.params.auth) {
-          extractedAuthToken = info.params.auth;
+          communityAuthToken = info.params.auth;
           if (info.params.steamID) {
-            extractedSteamID = info.params.steamID;
+            communityAuthSteamID = info.params.steamID;
+          }
+          break; // Found it — stop scanning
+        }
+      }
+
+      // Pass 2: Fallback — use any token if no community-specific one found
+      if (!communityAuthToken) {
+        for (const info of data.transfer_info) {
+          if (info.params?.auth) {
+            communityAuthToken = info.params.auth;
+            if (info.params.steamID) communityAuthSteamID = info.params.steamID;
+            break;
           }
         }
+      }
 
-        // Ping settoken so Steam server-side session registers
-        if (info.url) {
-          const transferTarget = info.url;
-          const transferUrl = applyCorsProxy(transferTarget, settings.corsProxyUrl);
-          const transferBody = new URLSearchParams(info.params);
+      if (communityAuthToken) {
+        extractedAuthToken = communityAuthToken;
+        if (communityAuthSteamID) extractedSteamID = communityAuthSteamID;
+      }
 
-          try {
-            const tRes = await fetch(transferUrl, {
-              method: 'POST',
-              headers,
-              body: transferBody.toString()
-            });
+      // Pass 3: Ping all settoken endpoints so Steam server-side session registers
+      // Prioritize steamcommunity.com first, then others
+      const sortedTransfers = [...data.transfer_info].sort((a, b) => {
+        const aC = a.url?.includes('steamcommunity.com') ? -1 : 1;
+        const bC = b.url?.includes('steamcommunity.com') ? -1 : 1;
+        return aC - bC;
+      });
 
-            const tCookieHeader = tRes.headers.get('x-steam-set-cookie') || tRes.headers.get('set-cookie');
-            if (tCookieHeader) {
-              const match = tCookieHeader.match(/steamLoginSecure=([^;]+)/);
-              if (match && match[1]) {
-                extractedCookie = decodeURIComponent(match[1]);
+      for (const info of sortedTransfers) {
+        if (!info.url || !info.params) continue;
+        const transferTarget = info.url;
+        const transferUrl = applyCorsProxy(transferTarget, settings.corsProxyUrl);
+        const transferBody = new URLSearchParams(info.params);
+
+        try {
+          const tRes = await fetch(transferUrl, {
+            method: 'POST',
+            headers,
+            body: transferBody.toString()
+          });
+
+          // Prefer the cookie from steamcommunity.com response
+          const isCommunity = info.url.includes('steamcommunity.com');
+          const tCookieHeader = tRes.headers.get('x-steam-set-cookie') || tRes.headers.get('set-cookie');
+          if (tCookieHeader) {
+            const match = tCookieHeader.match(/steamLoginSecure=([^;]+)/);
+            if (match && match[1]) {
+              const decoded = decodeURIComponent(match[1]);
+              // Only overwrite if we got a community cookie, or we have nothing yet
+              if (isCommunity || !extractedCookie) {
+                extractedCookie = decoded;
               }
             }
-          } catch {
-            // Continue
           }
+        } catch {
+          // Continue to next transfer
         }
       }
     }

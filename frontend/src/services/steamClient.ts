@@ -173,7 +173,7 @@ export class SteamClient {
       a: steamid,
       k: key,
       t: String(time),
-      m: 'android',
+      m: 'react',
       tag: 'conf'
     });
 
@@ -202,7 +202,7 @@ export class SteamClient {
       a: steamid,
       k: key,
       t: String(time),
-      m: 'android',
+      m: 'react',
       tag: 'conf'
     });
 
@@ -211,7 +211,8 @@ export class SteamClient {
 
     const isFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
     const fetchHeaders: Record<string, string> = {
-      Accept: 'application/json, text/plain, */*'
+      Accept: 'application/json, text/plain, */*',
+      'User-Agent': 'okhttp/4.9.2'
     };
 
     const cleanLogin = formatSteamLoginCookie(account.session.steamLoginSecure, account.steamid);
@@ -310,10 +311,18 @@ export class SteamClient {
       return [];
     }
 
+    // GetAuthSessionsForAccount requires a proper JWT (starts with "eyJ").
+    // Old-style hex OAuth tokens (e.g. "0735bb91de0b33cfa25b7b7d213741b6") are NOT valid here
+    // and will always result in HTTP 401 from Steam — skip them silently.
+    if (!accessToken.startsWith('eyJ')) {
+      return [];
+    }
+
     // Check if token expired before firing HTTP request (avoids 401 Unauthorized in DevTools console)
     if (isJwtExpired(accessToken)) {
       return [];
     }
+
 
     try {
       const targetUrl = `https://api.steampowered.com/IAuthenticationService/GetAuthSessionsForAccount/v1/?access_token=${encodeURIComponent(accessToken)}`;
@@ -423,7 +432,7 @@ export class SteamClient {
       a: steamid,
       k: key,
       t: String(time),
-      m: 'android',
+      m: 'react',
       tag,
       cid: confirmationId,
       ck: nonce
@@ -434,7 +443,8 @@ export class SteamClient {
 
     const isFile = typeof window !== 'undefined' && window.location.protocol === 'file:';
     const fetchHeaders: Record<string, string> = {
-      Accept: 'application/json, text/plain, */*'
+      Accept: 'application/json, text/plain, */*',
+      'User-Agent': 'okhttp/4.9.2'
     };
     if (account.session?.steamLoginSecure) {
       const cleanLogin = formatSteamLoginCookie(account.session.steamLoginSecure, account.steamid);

@@ -113,9 +113,10 @@ export function SettingsPage() {
       }
       const fullUrl = applyCorsProxy(targetUrl, proxyUrl);
 
+      const hasSecret = Boolean(settings.corsProxySecret?.trim());
       const headers: Record<string, string> = { 'Content-Type': 'application/x-www-form-urlencoded' };
-      if (settings.corsProxySecret?.trim()) {
-        headers['X-Proxy-Secret'] = settings.corsProxySecret.trim();
+      if (hasSecret) {
+        headers['X-Proxy-Secret'] = settings.corsProxySecret!.trim();
       }
 
       const res = await fetch(fullUrl, {
@@ -126,20 +127,56 @@ export function SettingsPage() {
       });
 
       const elapsed = Math.round(performance.now() - start);
-      if (res.ok) {
-        setProxyTestResult({
-          ok: true,
-          message: `Worker OK! Latency: ${elapsed}ms (HTTP ${res.status})`
-        });
-      } else if (res.status === 401) {
+
+      if (res.status === 401) {
+        // Our own secret was rejected by the worker
         setProxyTestResult({
           ok: false,
-          message: `Worker 401 Unauthorized (X-Proxy-Secret mismatch).`
+          message: `Worker rejected request (HTTP 401). X-Proxy-Secret mismatch — check PROXY_SECRET in Cloudflare environment variables.`
         });
-      } else {
+        return;
+      }
+
+      if (!res.ok) {
         setProxyTestResult({
           ok: false,
           message: `Worker returned HTTP ${res.status}`
+        });
+        return;
+      }
+
+      // If a secret is configured, do a second check WITHOUT the secret to verify the worker enforces it
+      if (hasSecret) {
+        try {
+          const openRes = await fetch(fullUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'steamid=0',
+            signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined
+          });
+          if (openRes.status === 401) {
+            // Worker correctly rejected an unauthenticated request — secret is enforced ✓
+            setProxyTestResult({
+              ok: true,
+              message: `Worker OK! Latency: ${elapsed}ms — Secret protection verified ✓`
+            });
+          } else {
+            // Worker responded 200 even without secret — either PROXY_SECRET not set in Cloudflare, or old worker
+            setProxyTestResult({
+              ok: true,
+              message: `Worker OK! Latency: ${elapsed}ms — ⚠ Worker accepted request without secret. PROXY_SECRET may not be set in Cloudflare env vars.`
+            });
+          }
+        } catch {
+          setProxyTestResult({
+            ok: true,
+            message: `Worker OK! Latency: ${elapsed}ms (HTTP ${res.status})`
+          });
+        }
+      } else {
+        setProxyTestResult({
+          ok: true,
+          message: `Worker OK! Latency: ${elapsed}ms (HTTP ${res.status}) — No secret configured (open proxy).`
         });
       }
     } catch (err: any) {
