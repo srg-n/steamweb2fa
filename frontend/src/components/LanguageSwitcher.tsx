@@ -32,53 +32,59 @@ export function LanguageSwitcher({ onChange }: Props) {
   };
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     };
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('mousedown', handleOutside);
+      document.addEventListener('touchstart', handleOutside);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
   }, [isOpen]);
 
   return (
     <div className="relative inline-flex items-center" ref={dropdownRef}>
-      {/* Mobile: Compact Dropdown Pill (Fits any phone width without overflow) */}
+      {/* Mobile: Compact Dropdown Pill */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="sm:hidden flex items-center gap-1 h-8 px-2 rounded-xl border border-base-200 bg-white/80 dark:border-white/[0.1] dark:bg-black text-xs font-bold text-base-800 dark:text-white active:scale-95 transition-all shadow-sm"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="sm:hidden flex items-center gap-1.5 h-8 px-2.5 rounded-xl border border-base-200 bg-white/90 dark:border-white/[0.12] dark:bg-[#121218] text-xs font-bold text-base-800 dark:text-white active:scale-95 transition-all shadow-sm cursor-pointer select-none"
         aria-label={`${t('settings.language')}: ${current.toUpperCase()}`}
         aria-expanded={isOpen}
       >
         <Globe size={13} className="text-accent-500 dark:text-[#00d2ff]" />
         <span className="uppercase text-[11px] font-extrabold tracking-wider">{current}</span>
         <ChevronDown
-          size={11}
-          className={`transition-transform duration-200 text-base-400 ${isOpen ? 'rotate-180' : ''}`}
+          size={12}
+          className={`transition-transform duration-200 text-base-400 ${isOpen ? 'rotate-180 text-accent-500 dark:text-[#00d2ff]' : ''}`}
         />
       </button>
 
       {/* Mobile Dropdown Popover */}
       {isOpen && (
-        <div className="sm:hidden absolute right-0 top-full mt-1.5 z-50 min-w-[125px] rounded-xl border border-base-200 dark:border-white/[0.12] bg-white/95 dark:bg-black/95 backdrop-blur-xl p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
-          {LANGUAGES.map((lang) => (
-            <button
-              key={lang.code}
-              type="button"
-              onClick={() => setLang(lang.code)}
-              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                current === lang.code
-                  ? 'bg-accent-500 text-black font-bold dark:bg-[#00d2ff] dark:text-black'
-                  : 'text-base-700 hover:bg-base-100 dark:text-base-300 dark:hover:bg-white/[0.06]'
-              }`}
-            >
-              <span>{lang.full}</span>
-              {current === lang.code && <Check size={12} className="stroke-[3]" />}
-            </button>
-          ))}
+        <div className="sm:hidden absolute right-0 top-full mt-2 z-[9999] min-w-[140px] rounded-2xl border border-base-200 dark:border-white/[0.15] bg-white dark:bg-[#16161f] shadow-2xl p-1.5 animate-in fade-in zoom-in-95 duration-100">
+          <div className="space-y-0.5">
+            {LANGUAGES.map((lang) => (
+              <button
+                key={lang.code}
+                type="button"
+                onClick={() => setLang(lang.code)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                  current === lang.code
+                    ? 'bg-accent-500 text-black font-bold dark:bg-[#00d2ff] dark:text-black shadow-sm'
+                    : 'text-base-700 hover:bg-base-100 dark:text-base-300 dark:hover:bg-white/[0.08]'
+                }`}
+              >
+                <span>{lang.full}</span>
+                {current === lang.code && <Check size={13} className="stroke-[3]" />}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

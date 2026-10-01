@@ -193,9 +193,9 @@ export function AppLayout() {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex flex-1 flex-col min-w-0 pb-24 md:pb-8 w-full max-w-full overflow-x-hidden">
+      <div className="flex flex-1 flex-col min-w-0 pb-24 md:pb-8 w-full max-w-full">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-base-200/80 bg-white/80 px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur dark:border-base-800/80 dark:bg-black/90 w-full max-w-full overflow-hidden">
+        <header className="sticky top-0 z-30 flex items-center justify-between border-b border-base-200/80 bg-white/80 px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur dark:border-base-800/80 dark:bg-black/90 w-full max-w-full">
           <div className="flex items-center gap-2 min-w-0 flex-shrink">
             <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-accent-500 text-black shadow-sm">
               <ShieldCheck size={18} className="text-black" />
