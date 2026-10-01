@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Download,
   X,
@@ -20,6 +21,7 @@ interface InstallModalProps {
 }
 
 export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: InstallModalProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'android' | 'ios'>('android');
   const [isInstalling, setIsInstalling] = useState(false);
 
@@ -54,7 +56,6 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
   };
 
   const handleDismissForAWhile = () => {
-    // Dismiss for 7 days
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('steamweb_pwa_dismissed_until', String(Date.now() + 7 * 86400000));
     }
@@ -74,7 +75,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
         <button
           onClick={handleDismissForAWhile}
           className="absolute top-4 right-4 p-1.5 rounded-full text-base-400 hover:text-white hover:bg-white/10 transition"
-          aria-label="Kapat"
+          aria-label={t('common.close')}
         >
           <X size={18} />
         </button>
@@ -86,13 +87,13 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <h3 className="text-base font-black tracking-tight text-white">SteamWeb'i Yükle</h3>
+              <h3 className="text-base font-black tracking-tight text-white">{t('installModal.title')}</h3>
               <span className="rounded-md bg-[#00d2ff]/20 px-1.5 py-0.5 text-[9px] font-black uppercase text-[#00d2ff]">
                 PWA
               </span>
             </div>
             <p className="text-xs text-base-400 font-medium">
-              Tam ekran, bağımsız mobil uygulama deneyimi
+              {t('installModal.subtitle')}
             </p>
           </div>
         </div>
@@ -102,7 +103,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
           <div className="space-y-3 mb-5 p-4 rounded-2xl border border-cyan-500/30 bg-cyan-500/10">
             <div className="flex items-center gap-2 text-xs font-semibold text-cyan-300">
               <Sparkles size={16} className="text-cyan-400" />
-              <span>Tarayıcınız tek tıkla yüklemeyi destekliyor!</span>
+              <span>{t('installModal.oneClickSupported')}</span>
             </div>
             <Button
               variant="primary"
@@ -111,7 +112,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
               disabled={isInstalling}
             >
               <Download size={16} className={isInstalling ? 'animate-spin' : ''} />
-              {isInstalling ? 'Yükleniyor...' : '📲 Ana Ekrana Ekle / Uygulamayı Yükle'}
+              {isInstalling ? t('installModal.installing') : t('installModal.installBtn')}
             </Button>
           </div>
         ) : null}
@@ -127,7 +128,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
             }`}
           >
             <Smartphone size={14} />
-            Android (Chrome)
+            {t('installModal.androidTab')}
           </button>
           <button
             onClick={() => setActiveTab('ios')}
@@ -138,7 +139,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
             }`}
           >
             <Share size={14} />
-            iPhone (Safari)
+            {t('installModal.iosTab')}
           </button>
         </div>
 
@@ -151,7 +152,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
                   1
                 </div>
                 <div>
-                  Sağ üst köşedeki <strong className="text-white">üç nokta (<MoreVertical size={13} className="inline text-cyan-400" />)</strong> menüsüne dokunun.
+                  {t('installModal.androidStep1')}
                 </div>
               </div>
               <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.05]">
@@ -159,7 +160,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
                   2
                 </div>
                 <div>
-                  Menüden <strong className="text-white">"Uygulamayı yükle"</strong> veya <strong className="text-white">"Ana ekrana ekle"</strong> seçeneğini seçin.
+                  {t('installModal.androidStep2')}
                 </div>
               </div>
               <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.05]">
@@ -167,7 +168,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
                   <CheckCircle2 size={14} />
                 </div>
                 <div>
-                  Çıkan onay kutusunda <strong className="text-emerald-400">"Yükle"</strong> butonuna basın. Uygulama tıpkı Play Store gibi ana ekranınıza eklenir!
+                  {t('installModal.androidStep3')}
                 </div>
               </div>
             </>
@@ -178,7 +179,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
                   1
                 </div>
                 <div>
-                  Safari ekranının altındaki <strong className="text-white">Paylaş (<Share size={13} className="inline text-cyan-400" />)</strong> simgesine dokunun.
+                  {t('installModal.iosStep1')}
                 </div>
               </div>
               <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.05]">
@@ -186,7 +187,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
                   2
                 </div>
                 <div>
-                  Açılan menüyü aşağı kaydırıp <strong className="text-white">"Ana Ekrana Ekle" (<PlusSquare size={13} className="inline text-cyan-400" />)</strong> seçeneğini seçin.
+                  {t('installModal.iosStep2')}
                 </div>
               </div>
               <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.05]">
@@ -194,7 +195,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
                   <CheckCircle2 size={14} />
                 </div>
                 <div>
-                  Sağ üstteki <strong className="text-emerald-400">"Ekle"</strong> butonuna basın. Safari adres çubuğu olmadan tam ekran açılacaktır!
+                  {t('installModal.iosStep3')}
                 </div>
               </div>
             </>
@@ -207,7 +208,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
             onClick={handleDismissForAWhile}
             className="text-xs text-base-400 hover:text-white transition py-1"
           >
-            Daha Sonra Hatırlat
+            {t('installModal.remindLater')}
           </button>
 
           <Button
@@ -215,7 +216,7 @@ export function InstallModal({ isOpen, onClose, deferredPrompt, onInstalled }: I
             className="h-8 px-3 text-xs bg-white/10 hover:bg-white/15 text-white"
             onClick={onClose}
           >
-            Anladım, Kapat
+            {t('installModal.gotIt')}
           </Button>
         </div>
       </div>

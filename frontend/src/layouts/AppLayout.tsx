@@ -227,7 +227,7 @@ export function AppLayout() {
                 title={t('settings.installBtn')}
               >
                 <Download size={13} />
-                <span className="hidden min-[420px]:inline text-[11px] font-bold">Yükle</span>
+                <span className="hidden min-[420px]:inline text-[11px] font-bold">{t('settings.installBtn')}</span>
               </Button>
             )}
             <LanguageSwitcher />

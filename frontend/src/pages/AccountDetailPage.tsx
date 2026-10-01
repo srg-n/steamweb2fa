@@ -204,18 +204,18 @@ export function AccountDetailPage() {
         setAutoLoginPassword('');
         setAutoLoginStatus(null);
         setMessage({
-          text: 'Giriş başarılı! steamLoginSecure çerezi otomatik tanımlandı ve onaylar aktif edildi.',
+          text: t('accountDetail.autoLoginSuccess'),
           type: 'success'
         });
         await loadData();
         await loadConfirmations();
       } else {
-        throw new Error(res.error || 'Giriş başarısız oldu.');
+        throw new Error(res.error || 'Login failed.');
       }
     } catch (err: any) {
       setAutoLoginStatus(null);
       setMessage({
-        text: `Otomatik giriş başarısız: ${err?.message || 'Bilinmeyen hata'}`,
+        text: `Login error: ${err?.message || 'Unknown error'}`,
         type: 'error'
       });
     } finally {
@@ -233,21 +233,18 @@ export function AccountDetailPage() {
       if (res.success && res.steamLoginSecure) {
         setSteamLoginSecure(res.steamLoginSecure);
         setMessage({
-          text: 'Oturum RefreshToken ile başarıyla yenilendi!',
+          text: t('accountDetail.refreshSuccess'),
           type: 'success'
         });
         await loadData();
         await loadConfirmations();
       } else {
-        throw new Error(res.error || 'Yenileme başarısız.');
+        throw new Error(res.error || 'Session refresh failed.');
       }
     } catch (err: any) {
-      const raw = err?.message || 'Bilinmeyen hata';
-      const cleanMsg = raw.startsWith('Oturum yenileme hatası:')
-        ? raw
-        : `Oturum yenileme hatası: ${raw}`;
+      const raw = err?.message || 'Unknown error';
       setMessage({
-        text: cleanMsg,
+        text: raw,
         type: 'error'
       });
     } finally {
@@ -479,7 +476,7 @@ export function AccountDetailPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Sparkles className="text-accent-500" size={18} />
-              <h3 className="text-sm font-bold text-white">Otomatik Steam Girişi (2FA Otomatik Çözülür)</h3>
+              <h3 className="text-sm font-bold text-white">{t('accountDetail.autoLoginTitle')}</h3>
             </div>
             {account.session?.refreshToken && (
               <Button
@@ -489,18 +486,18 @@ export function AccountDetailPage() {
                 disabled={refreshBusy || autoLoginBusy}
               >
                 <RefreshCw size={12} className={refreshBusy ? 'animate-spin' : ''} />
-                RefreshToken ile Yenile
+                {refreshBusy ? t('accountDetail.refreshing') : t('accountDetail.refreshTokenBtn')}
               </Button>
             )}
           </div>
           <p className="text-xs text-base-400 leading-relaxed">
-            F12 ile uğraşmadan oturum açın. Worker şifrenizi yerel RSA ile şifreler, <strong>Steam Guard 2FA kodunu otomatik üretip onaylar</strong> ve <code>steamLoginSecure</code> çerezini hesabınıza anında kaydeder.
+            {t('accountDetail.autoLoginDesc')}
           </p>
 
           <div className="flex flex-col sm:flex-row gap-2 pt-1">
             <Input
               type="password"
-              placeholder={`"${account.accountName}" için Steam şifresi`}
+              placeholder={t('accountDetail.passwordPlaceholder')}
               value={autoLoginPassword}
               onChange={(e) => setAutoLoginPassword(e.target.value)}
               className="text-xs flex-1"
@@ -513,7 +510,7 @@ export function AccountDetailPage() {
               disabled={autoLoginBusy || !autoLoginPassword}
             >
               <LogIn size={14} className={autoLoginBusy ? 'animate-spin' : ''} />
-              {autoLoginBusy ? 'Giriş Yapılıyor...' : 'Otomatik Giriş Yap & Çerezi Al'}
+              {autoLoginBusy ? t('accountDetail.loggingIn') : t('accountDetail.autoLoginBtn')}
             </Button>
           </div>
 

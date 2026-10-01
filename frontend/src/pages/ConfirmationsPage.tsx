@@ -83,7 +83,7 @@ export function ConfirmationsPage() {
         setIsRateLimited(true);
         setRateLimitTimer(45);
         setMessage({
-          text: '⚠️ Steam geçici hız sınırı uyguladı (HTTP 429). İstekler 45 saniye duraklatıldı.',
+          text: `⚠️ ${t('confirmations.rateLimitError')}`,
           type: 'error'
         });
       } else if (err?.message === 'CORS_BLOCKED') {
@@ -199,8 +199,9 @@ export function ConfirmationsPage() {
     setBatchBusy(false);
     setBatchProgress(null);
     await fetchConfirmations();
+    const action = accept ? t('confirmations.accepted') : t('confirmations.rejected');
     setMessage({
-      text: `Toplu işlem tamamlandı: ${successCount}/${total} onay ${accept ? 'kabul edildi' : 'reddedildi'}.`,
+      text: t('confirmations.batchComplete', { count: successCount, total, action }),
       type: 'success'
     });
   };
@@ -224,13 +225,13 @@ export function ConfirmationsPage() {
           <AlertCircle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
           <div className="space-y-1">
             <div className="font-bold text-white flex items-center gap-2">
-              <span>Steam Hız Sınırı (Rate Limit — HTTP 429)</span>
+              <span>{t('confirmations.rateLimitTitle')}</span>
               <span className="font-mono text-[11px] bg-amber-500/20 px-2 py-0.5 rounded-full text-amber-400">
-                {rateLimitTimer}s beklemede
+                {t('confirmations.rateLimitWait', { seconds: rateLimitTimer })}
               </span>
             </div>
             <p className="text-base-300 text-[12px] leading-relaxed">
-              Steam sunucuları çok sık onay sorgusu yapıldığı için geçici olarak yanıt vermeyi kısıtladı. Otomatik yenileme ve istekler güvenlik amacıyla {rateLimitTimer} saniye boyunca duraklatıldı.
+              {t('confirmations.rateLimitDesc', { seconds: rateLimitTimer })}
             </p>
           </div>
         </div>
@@ -347,7 +348,11 @@ export function ConfirmationsPage() {
             <div className="flex items-center gap-2">
               <RefreshCw size={16} className="animate-spin text-accent-500" />
               <span className="font-bold text-sm text-white">
-                Toplu Onaylanıyor: {batchProgress.current} / {batchProgress.total} (%{batchProgress.percent})
+                {t('confirmations.batchProcessing', {
+                  current: batchProgress.current,
+                  total: batchProgress.total,
+                  percent: batchProgress.percent
+                })}
               </span>
             </div>
             <Button
@@ -356,7 +361,7 @@ export function ConfirmationsPage() {
               onClick={() => { abortBatchRef.current = true; }}
             >
               <StopCircle size={14} />
-              Durdur
+              {t('common.cancel')}
             </Button>
           </div>
           <div className="w-full bg-black/60 rounded-full h-2.5 overflow-hidden border border-white/10">
@@ -366,8 +371,10 @@ export function ConfirmationsPage() {
             />
           </div>
           <div className="text-[11px] text-base-400 flex justify-between">
-            <span>Steam Rate-Limit korumalı sıralı işlem yapılıyor...</span>
-            <span className="text-emerald-400 font-mono font-bold">{batchProgress.successCount} Başarılı</span>
+            <span>Rate-limit safe</span>
+            <span className="text-emerald-400 font-mono font-bold">
+              {t('confirmations.batchSuccessCount', { count: batchProgress.successCount })}
+            </span>
           </div>
         </Card>
       )}
@@ -395,17 +402,17 @@ export function ConfirmationsPage() {
             </div>
             <div className="space-y-1.5 flex-1">
               <h3 className="font-bold text-base text-white flex items-center gap-2">
-                Tarayıcı Güvenlik Engeli (Steam CORS Kısıtlaması)
+                {t('confirmations.corsTitle')}
               </h3>
               <p className="text-xs sm:text-sm text-base-300 leading-relaxed">
-                Steam sunucuları, tarayıcılardan doğrudan <code>steamcommunity.com</code> adresine yapılan çapraz kökenli (cross-origin) onay sorgularına izin vermez. Bekleyen market veya takas onaylarınız Steam'de hazırdır.
+                {t('confirmations.corsDesc')}
               </p>
             </div>
           </div>
 
           <div className="pt-2 border-t border-white/[0.08] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="text-xs text-base-400">
-              💡 <strong>Hızlı Çözüm:</strong> İmzalanmış resmi Steam sayfasına giderek 1 tıkla onaylayabilirsiniz.
+              💡 <strong>{t('confirmations.quickSolution')}</strong>
             </div>
 
             <a
@@ -414,22 +421,18 @@ export function ConfirmationsPage() {
               rel="noopener noreferrer"
               className="button-primary h-10 px-5 text-xs font-bold gap-2 flex items-center justify-center bg-[#00d2ff] hover:bg-[#38bdf8] text-black shadow-glow"
             >
-              <span>Steam'de Doğrudan Aç ve Onayla</span>
+              <span>{t('confirmations.openOnSteam')}</span>
               <ExternalLink size={15} />
             </a>
           </div>
 
           <div className="rounded-xl border border-white/[0.06] bg-black/50 p-3 text-xs text-base-400 space-y-1.5">
             <div className="font-semibold text-white/90">
-              🚀 Uygulama İçinden Tek Tıkla Onaylamak İsterseniz:
+              🚀 {t('confirmations.corsOptionsTitle')}
             </div>
             <ul className="list-disc list-inside space-y-1 pl-1 text-[12px]">
-              <li>
-                <strong>Seçenek 1 (En Kolayı):</strong> Chrome Web Store'dan <strong>"Allow CORS: Access-Control-Allow-Origin"</strong> eklentisini kurup açın. Sayfayı yenilediğinizde onaylarınız doğrudan bu ekranda butonlarıyla listelenecektir.
-              </li>
-              <li>
-                <strong>Seçenek 2:</strong> <Link to="/settings" className="text-accent-500 underline">Ayarlar</Link> sayfasına giderek yerel veya kendinize ait bir <strong>CORS Proxy</strong> adresi tanımlayın.
-              </li>
+              <li>{t('confirmations.corsOpt1')}</li>
+              <li>{t('confirmations.corsOpt2')}</li>
             </ul>
           </div>
         </Card>
@@ -442,10 +445,10 @@ export function ConfirmationsPage() {
             <AlertCircle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
             <div className="space-y-0.5">
               <div className="font-bold text-white">
-                Oturum Çerezi (steamLoginSecure) Tanımlı Değil ({missingSessionAccounts.length} Hesap)
+                {t('confirmations.missingSessionTitle', { count: missingSessionAccounts.length })}
               </div>
               <p className="text-base-400 text-[11px] leading-relaxed">
-                Steam takas ve pazar onaylarını listeleyebilmek için <code>steamLoginSecure</code> oturum çerezi zorunludur. (2FA kodları çevrimdışı çalışır, ancak onay listesi için çerez gereklidir).
+                {t('confirmations.missingSessionDesc')}
               </p>
             </div>
           </div>
@@ -453,7 +456,7 @@ export function ConfirmationsPage() {
             to={`/accounts/${missingSessionAccounts[0].id}`}
             className="button-primary h-8 px-3 text-xs font-bold gap-1.5 self-start sm:self-center flex-shrink-0 bg-[#00d2ff] hover:bg-[#38bdf8] text-black"
           >
-            Çerezi Ekle <ExternalLink size={12} />
+            {t('confirmations.addCookie')} <ExternalLink size={12} />
           </Link>
         </div>
       )}

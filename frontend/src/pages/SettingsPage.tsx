@@ -87,12 +87,12 @@ export function SettingsPage() {
       const elapsed = Math.round(performance.now() - start);
       setTestResult({
         ok: true,
-        message: `Bağlantı aktif! Gecikme: ${elapsed}ms | Referans Saat: ${new Date(res.serverTime * 1000).toLocaleTimeString()} (Sapma: ${res.offsetSeconds}s)`
+        message: `${t('common.success')}! Latency: ${elapsed}ms | Steam Time: ${new Date(res.serverTime * 1000).toLocaleTimeString()} (Offset: ${res.offsetSeconds}s)`
       });
     } catch (err: any) {
       setTestResult({
         ok: false,
-        message: `Bağlantı hatası: ${err?.message || 'CORS veya Ağ hatası'}`
+        message: err?.message || 'Connection error (CORS or Network)'
       });
     } finally {
       setTestBusy(false);
@@ -129,23 +129,23 @@ export function SettingsPage() {
       if (res.ok) {
         setProxyTestResult({
           ok: true,
-          message: `Cloudflare Worker aktif ve çalışıyor! Gecikme: ${elapsed}ms (HTTP ${res.status})`
+          message: `Worker OK! Latency: ${elapsed}ms (HTTP ${res.status})`
         });
       } else if (res.status === 401) {
         setProxyTestResult({
           ok: false,
-          message: `Worker erişim reddi verdi (HTTP 401: X-Proxy-Secret şifresi eşleşmedi).`
+          message: `Worker 401 Unauthorized (X-Proxy-Secret mismatch).`
         });
       } else {
         setProxyTestResult({
           ok: false,
-          message: `Worker yanıt verdi fakat hata döndü: HTTP ${res.status}`
+          message: `Worker returned HTTP ${res.status}`
         });
       }
     } catch (err: any) {
       setProxyTestResult({
         ok: false,
-        message: `Worker'a bağlanılamadı: ${err?.message || 'Ağ hatası veya geçersiz URL'}`
+        message: `Worker error: ${err?.message || 'Network error'}`
       });
     } finally {
       setProxyTestBusy(false);
@@ -220,14 +220,14 @@ export function SettingsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Wifi className="text-emerald-500" size={18} />
-            <h2 className="text-base font-bold">Steam Doğrudan Bağlantı</h2>
+            <h2 className="text-base font-bold">{t('settings.connection')}</h2>
           </div>
           <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-            Sıfır Proxy / 100% Direct
+            {t('settings.zeroProxy')}
           </span>
         </div>
         <p className="text-xs text-base-500 leading-relaxed">
-          Uygulama herhangi bir ara sunucu veya proxy kullanmaz; doğrudan <code>api.steampowered.com</code> ve <code>steamcommunity.com</code> ile iletişim kurar. Tüm 2FA kodları çevrimdışı matematiksel olarak hesaplanır.
+          {t('settings.connectionDesc')}
         </p>
 
         <div className="pt-1 flex flex-col sm:flex-row items-start sm:items-center gap-3">
@@ -238,7 +238,7 @@ export function SettingsPage() {
             disabled={testBusy}
           >
             <RefreshCw size={14} className={testBusy ? 'animate-spin' : ''} />
-            Steam Bağlantısını Test Et
+            {t('settings.testConnection')}
           </Button>
           {testResult && (
             <div
@@ -259,23 +259,23 @@ export function SettingsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Globe className="text-accent-500" size={18} />
-            <h2 className="text-base font-bold">CORS Proxy (İsteğe Bağlı)</h2>
+            <h2 className="text-base font-bold">{t('settings.corsProxyTitle')}</h2>
           </div>
           <span className="rounded-full bg-accent-500/10 px-2.5 py-0.5 text-xs font-semibold text-accent-500 dark:text-[#00d2ff]">
-            Takas & Pazar Onayları İçin
+            {t('settings.corsProxyBadge')}
           </span>
         </div>
         <p className="text-xs text-base-500 leading-relaxed">
-          Steam sunucuları tarayıcı ortamında doğrudan çapraz köken (CORS) izni vermez. Tarayıcı eklentisi kullanmak istemiyorsanız yerel bir proxy veya kendi sunucunuzu belirtebilirsiniz. Boş bırakırsanız doğrudan bağlantı ve Steam resmi onay sayfası kullanılır.
+          {t('settings.corsProxyDesc')}
         </p>
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-base-400">Proxy URL:</label>
+            <label className="text-xs font-medium text-base-400">{t('settings.proxyUrlLabel')}</label>
             <div className="mt-1 flex flex-col sm:flex-row gap-2">
               <Input
                 type="text"
-                placeholder="Örn: https://steam-proxy.kullaniciadi.workers.dev/"
+                placeholder={t('settings.proxyUrlPlaceholder')}
                 value={settings.corsProxyUrl || ''}
                 onChange={(e) => handleUpdate({ corsProxyUrl: e.target.value })}
                 onBlur={(e) => {
@@ -295,7 +295,7 @@ export function SettingsPage() {
                   disabled={proxyTestBusy || !settings.corsProxyUrl}
                 >
                   <RefreshCw size={13} className={proxyTestBusy ? 'animate-spin' : ''} />
-                  Test Et
+                  {t('settings.test')}
                 </Button>
                 {settings.corsProxyUrl && (
                   <Button
@@ -306,7 +306,7 @@ export function SettingsPage() {
                       setProxyTestResult(null);
                     }}
                   >
-                    Sıfırla
+                    {t('settings.reset')}
                   </Button>
                 )}
               </div>
@@ -316,19 +316,19 @@ export function SettingsPage() {
           <div>
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-base-400">
-                Proxy Gizli Şifresi / X-Proxy-Secret (İsteğe Bağlı):
+                {t('settings.proxySecretLabel')}
               </label>
-              <span className="text-[10px] text-base-500 font-normal">Kota & Erişim Güvenliği</span>
+              <span className="text-[10px] text-base-500 font-normal">Security & Quota</span>
             </div>
             <Input
               type="password"
-              placeholder="Cloudflare PROXY_SECRET şifresi (varsa)"
+              placeholder={t('settings.proxySecretPlaceholder')}
               value={settings.corsProxySecret || ''}
               onChange={(e) => handleUpdate({ corsProxySecret: e.target.value })}
               className="text-xs font-mono mt-1"
             />
             <p className="text-[11px] text-base-500 mt-1">
-              Cloudflare Worker'ınıza <code>PROXY_SECRET</code> tanımladıysanız buraya yazın. Başkalarının kotanızı sömürmesini engeller.
+              {t('settings.proxySecretHint')}
             </p>
           </div>
 
@@ -362,37 +362,37 @@ export function SettingsPage() {
 
         <div className="rounded-xl border border-white/[0.08] bg-black/40 p-3 text-xs text-base-400 space-y-1">
           <p className="font-semibold text-white/90">
-            ℹ️ Çevrimdışı ve Sıfır Gecikmeli TOTP:
+            {t('settings.offlineTotpInfoTitle')}
           </p>
           <p className="leading-relaxed">
-            Steam Guard 2FA kodları tamamen cihazınızın yerel saati (RFC 6238 TOTP standardı) kullanılarak çevrimdışı üretilir. Bilgisayarınız ve telefonunuz internet saatine (NTP) otomatik bağlı olduğu için saat sapması 0 saniyedir. Valve'ın sunucuları tarayıcı ortamında doğrudan CORS başlığı vermese dahi kodlarınız %100 geçerli üretilmeye devam eder.
+            {t('settings.offlineTotpInfoDesc')}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-base-100/70 dark:bg-base-800/50 border border-base-200 dark:border-base-700/60">
           <div>
-            <div className="text-xs text-base-400">Aktif Sapma (Time Offset)</div>
+            <div className="text-xs text-base-400">{t('settings.activeOffset')}</div>
             <div className="font-mono text-lg font-bold text-accent-500">
-              {settings.timeOffsetSec >= 0 ? `+${settings.timeOffsetSec}` : settings.timeOffsetSec} saniye
+              {settings.timeOffsetSec >= 0 ? `+${settings.timeOffsetSec}` : settings.timeOffsetSec} s
             </div>
             {settings.lastTimeSync && (
               <div className="text-[11px] text-base-400">
-                Son senkronizasyon: {new Date(settings.lastTimeSync).toLocaleString()}
+                {t('settings.lastSync', { time: new Date(settings.lastTimeSync).toLocaleString() })}
               </div>
             )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1.5 text-xs text-base-400">
-              <span>Manuel Sapma:</span>
+              <span>{t('settings.manualOffset')}</span>
               <input
                 type="number"
                 className="input-base w-16 h-8 text-xs font-mono text-center"
                 value={settings.timeOffsetSec}
                 onChange={(e) => handleUpdate({ timeOffsetSec: Number(e.target.value) || 0 })}
-                title="Saniye cinsinden manuel sapma (+ / -)"
+                title="Offset in seconds (+ / -)"
               />
-              <span>sn</span>
+              <span>s</span>
             </div>
 
             <Button
@@ -509,7 +509,7 @@ export function SettingsPage() {
 
           <Button variant="danger" className="gap-1.5 text-xs h-9 px-4 ml-auto" onClick={handleClearAll}>
             <Trash2 size={14} />
-            Wipe All Data
+            {t('settings.wipeAll')}
           </Button>
         </div>
       </Card>
