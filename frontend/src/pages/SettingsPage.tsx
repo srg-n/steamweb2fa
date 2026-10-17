@@ -78,11 +78,16 @@ export function SettingsPage() {
   const passphraseRef = useRef<HTMLInputElement>(null);
   const currentPassphraseRef = useRef<HTMLInputElement>(null);
   const nextPassphraseRef = useRef<HTMLInputElement>(null);
+  const [autoLockSec, setAutoLockSec] = useState<number>(() => getVaultConfig()?.autoLockSec ?? 300);
 
-  const vaultConfig = getVaultConfig();
   const vaultEnabled = vaultStatus !== 'disabled';
   const passkeySet = hasPasskey();
   const passphraseSet = hasPassphrase();
+
+  useEffect(() => {
+    const current = getVaultConfig()?.autoLockSec;
+    if (current) setAutoLockSec(current);
+  }, [vaultStatus]);
 
   // Capability detection is advisory here: the real test is the ceremony
   // itself, and the passphrase keeps the vault usable when PRF is missing.
@@ -350,6 +355,7 @@ export function SettingsPage() {
       });
       await db.migrateToVault();
       if (passphraseRef.current) passphraseRef.current.value = '';
+      setAutoLockSec(getVaultConfig()?.autoLockSec ?? 300);
     }, () => {
       // The passkey may have been created yet still unable to derive keys.
       // Say so instead of leaving the user to wonder where the option went.
@@ -394,6 +400,15 @@ export function SettingsPage() {
       await removePassphrase(current);
       if (currentPassphraseRef.current) currentPassphraseRef.current.value = '';
     }, 'vault.passphraseRemoved');
+  };
+
+  const handleAutoLockChange = async (sec: number) => {
+    setAutoLockSec(sec);
+    try {
+      await setAutoLock(sec);
+    } catch {
+      setAutoLockSec(getVaultConfig()?.autoLockSec ?? 300);
+    }
   };
 
   return (
@@ -834,8 +849,8 @@ export function SettingsPage() {
               <label className="flex items-center gap-2 text-xs text-base-500">
                 {t('vault.autoLock')}
                 <select
-                  value={vaultConfig?.autoLockSec ?? 300}
-                  onChange={(e) => void setAutoLock(Number(e.target.value))}
+                  value={autoLockSec}
+                  onChange={(e) => void handleAutoLockChange(Number(e.target.value))}
                   className="rounded-lg border border-base-200 bg-base-100 px-2 py-1 text-xs dark:border-base-800 dark:bg-[#121218]"
                 >
                   {AUTO_LOCK_OPTIONS.map((sec) => (

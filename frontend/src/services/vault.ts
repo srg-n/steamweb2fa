@@ -500,6 +500,7 @@ export async function setAutoLock(seconds: number): Promise<void> {
   config.autoLockSec = Math.max(MIN_AUTO_LOCK_SEC, Math.floor(seconds));
   await persistence!.save(config);
   touchVault();
+  emit();
 }
 
 /** Re-wraps the DEK under a freshly enrolled passkey (keeps the passphrase). */
