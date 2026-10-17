@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Settings as SettingsIcon,
@@ -23,8 +23,9 @@ import { db, type AppSettings } from '../services/storage';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { SecretInput } from '../components/ui/SecretInput';
 import { applyCorsProxy } from '../services/steamClient';
-import { detectPrfSupport, type PrfSupport } from '../services/prfVault';
+import { detectPrfSupport } from '../services/prfVault';
 import { describeVaultError } from '../services/vaultErrors';
 import {
   addPassphrase,
@@ -61,37 +62,39 @@ export function SettingsPage() {
   // Vault state
   const [vaultStatus, setVaultStatus] = useState<VaultStatus>(() => getVaultStatus());
   const [vaultBusy, setVaultBusy] = useState(false);
-  const [prfSupport, setPrfSupport] = useState<PrfSupport | null>(null);
+  const prfSupport = useMemo(() => ({
+    webauthn: typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined',
+    platformAuthenticator: typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined',
+    browserPrf: typeof window !== 'undefined' && typeof window.PublicKeyCredential !== 'undefined',
+    usable: false,
+    reason: 'webauthn_missing' as const
+  }), []);
   const [prfUnavailable, setPrfUnavailable] = useState(() => isPrfKnownUnavailable());
-  const [usePasskey, setUsePasskey] = useState(false);
+  // Passkey is the primary method; the passphrase is the recovery path.
+  const [usePasskey, setUsePasskey] = useState(true);
   const [usePassphrase, setUsePassphrase] = useState(true);
-  const [passphrase, setPassphrase] = useState('');
-  const [currentPassphrase, setCurrentPassphrase] = useState('');
-  const [nextPassphrase, setNextPassphrase] = useState('');
+  // Parola alanları state'e alınmıyor; değer yalnızca input DOM düğümünde
+  // yaşıyor, böylece outerHTML dökümlerine / hata raporlarına düşmüyor.
+  const passphraseRef = useRef<HTMLInputElement>(null);
+  const currentPassphraseRef = useRef<HTMLInputElement>(null);
+  const nextPassphraseRef = useRef<HTMLInputElement>(null);
 
   const vaultConfig = getVaultConfig();
   const vaultEnabled = vaultStatus !== 'disabled';
   const passkeySet = hasPasskey();
   const passphraseSet = hasPassphrase();
 
-  // Only offer the passkey once the device really advertises PRF support, so
-  // the user is not pushed into an authenticator prompt that must fail. A
-  // device that already refused once is not asked again until they retry.
+  // Capability detection is advisory here: the real test is the ceremony
+  // itself, and the passphrase keeps the vault usable when PRF is missing.
   useEffect(() => {
-    let cancelled = false;
     void detectPrfSupport().then((support) => {
-      if (cancelled) return;
-      setPrfSupport(support);
-      if (support.usable) setUsePasskey(true);
+      if (support.usable && !isPrfKnownUnavailable()) setUsePasskey(true);
     });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   useEffect(() => onVaultChange(setVaultStatus), []);
 
-  const passkeyPossible = Boolean(prfSupport?.usable) && !prfUnavailable;
+  const passkeyPossible = !prfUnavailable && prfSupport.webauthn;
 
   useEffect(() => {
     settingsApi.get().then(setSettings);
@@ -327,7 +330,9 @@ export function SettingsPage() {
       if (err?.code === 'prf_unsupported' || err?.code === 'platform_authenticator_missing') {
         setUsePasskey(false);
         setUsePassphrase(true);
-        void detectPrfSupport().then(setPrfSupport);
+        void detectPrfSupport().then((support) => {
+          if (!support.usable) setPrfUnavailable(true);
+        });
       }
     } finally {
       setVaultBusy(false);
@@ -336,14 +341,15 @@ export function SettingsPage() {
 
   const handleEnableVault = () => {
     const wantedPasskey = usePasskey;
+    const phrase = passphraseRef.current?.value ?? '';
     return runVault(async () => {
       await enableVault({
         usePasskey,
         usePassphrase,
-        passphrase: usePassphrase ? passphrase : undefined
+        passphrase: usePassphrase ? phrase : undefined
       });
       await db.migrateToVault();
-      setPassphrase('');
+      if (passphraseRef.current) passphraseRef.current.value = '';
     }, () => {
       // The passkey may have been created yet still unable to derive keys.
       // Say so instead of leaving the user to wonder where the option went.
@@ -363,24 +369,30 @@ export function SettingsPage() {
     }, 'vault.disabled');
   };
 
-  const handleAddPassphrase = () =>
-    runVault(async () => {
-      await addPassphrase(passphrase);
-      setPassphrase('');
+  const handleAddPassphrase = () => {
+    const phrase = passphraseRef.current?.value ?? '';
+    return runVault(async () => {
+      await addPassphrase(phrase);
+      if (passphraseRef.current) passphraseRef.current.value = '';
     }, 'vault.passphraseAdded');
+  };
 
-  const handleChangePassphrase = () =>
-    runVault(async () => {
-      await changePassphrase(currentPassphrase, nextPassphrase);
-      setCurrentPassphrase('');
-      setNextPassphrase('');
+  const handleChangePassphrase = () => {
+    const current = currentPassphraseRef.current?.value ?? '';
+    const next = nextPassphraseRef.current?.value ?? '';
+    return runVault(async () => {
+      await changePassphrase(current, next);
+      if (currentPassphraseRef.current) currentPassphraseRef.current.value = '';
+      if (nextPassphraseRef.current) nextPassphraseRef.current.value = '';
     }, 'vault.passphraseChanged');
+  };
 
   const handleRemovePassphrase = () => {
     if (!window.confirm(t('vault.removePassphraseConfirm'))) return;
+    const current = currentPassphraseRef.current?.value ?? '';
     return runVault(async () => {
-      await removePassphrase(currentPassphrase);
-      setCurrentPassphrase('');
+      await removePassphrase(current);
+      if (currentPassphraseRef.current) currentPassphraseRef.current.value = '';
     }, 'vault.passphraseRemoved');
   };
 
@@ -515,11 +527,14 @@ export function SettingsPage() {
               </label>
               <span className="text-[10px] text-base-500 font-normal">{t('settings.securityQuota')}</span>
             </div>
-            <Input
-              type="password"
+            <SecretInput
               placeholder={t('settings.proxySecretPlaceholder')}
-              value={settings.corsProxySecret || ''}
-              onChange={(e) => handleUpdate({ corsProxySecret: e.target.value })}
+              defaultValue={settings.corsProxySecret || ''}
+              onBlur={(e) => {
+                if (e.target.value !== (settings.corsProxySecret || '')) {
+                  void handleUpdate({ corsProxySecret: e.target.value });
+                }
+              }}
               className="text-xs font-mono mt-1"
             />
             <p className="text-[11px] text-base-500 mt-1">
@@ -777,9 +792,9 @@ export function SettingsPage() {
               </div>
             )}
 
-            {!passkeyPossible && !prfUnavailable && prfSupport && !prfSupport.usable && (
+            {!passkeyPossible && !prfUnavailable && !prfSupport.webauthn && (
               <p className="text-xs text-base-500">
-                {describeVaultError({ code: prfSupport.reason }, (key) => t(key), t('vault.usePassphraseDesc'))}
+                {describeVaultError({ code: 'webauthn_missing' }, (key) => t(key), '')}
               </p>
             )}
 
@@ -797,19 +812,17 @@ export function SettingsPage() {
             </label>
 
             {usePassphrase && (
-              <Input
-                type="password"
+              <SecretInput
+                ref={passphraseRef}
                 autoComplete="new-password"
-                value={passphrase}
                 placeholder={t('vault.passphrasePlaceholder')}
-                onChange={(e) => setPassphrase(e.target.value)}
               />
             )}
 
             <Button
               variant="primary"
               className="gap-1.5 text-xs h-9 px-4"
-              disabled={vaultBusy || (usePassphrase && passphrase.length < 8) || (!usePasskey && !usePassphrase)}
+              disabled={vaultBusy || (!usePasskey && !usePassphrase)}
               onClick={handleEnableVault}
             >
               {t('vault.enable')}
@@ -854,17 +867,15 @@ export function SettingsPage() {
             {!passphraseSet && (
               <div className="space-y-2">
                 <p className="text-xs text-base-500">{t('vault.recoveryMissing')}</p>
-                <Input
-                  type="password"
+                <SecretInput
+                  ref={passphraseRef}
                   autoComplete="new-password"
-                  value={passphrase}
                   placeholder={t('vault.passphrasePlaceholder')}
-                  onChange={(e) => setPassphrase(e.target.value)}
                 />
                 <Button
                   variant="secondary"
                   className="gap-1.5 text-xs h-9 px-4"
-                  disabled={vaultBusy || passphrase.length < 8}
+                  disabled={vaultBusy}
                   onClick={handleAddPassphrase}
                 >
                   {t('vault.addPassphrase')}
@@ -876,26 +887,22 @@ export function SettingsPage() {
               <div className="space-y-2">
                 <p className="text-xs text-base-500">{t('vault.changePassphrase')}</p>
                 <div className="flex flex-wrap gap-2">
-                  <Input
-                    type="password"
+                  <SecretInput
+                    ref={currentPassphraseRef}
                     autoComplete="current-password"
                     className="max-w-[220px]"
-                    value={currentPassphrase}
                     placeholder={t('vault.currentPassphrase')}
-                    onChange={(e) => setCurrentPassphrase(e.target.value)}
                   />
-                  <Input
-                    type="password"
+                  <SecretInput
+                    ref={nextPassphraseRef}
                     autoComplete="new-password"
                     className="max-w-[220px]"
-                    value={nextPassphrase}
                     placeholder={t('vault.newPassphrase')}
-                    onChange={(e) => setNextPassphrase(e.target.value)}
                   />
                   <Button
                     variant="secondary"
                     className="gap-1.5 text-xs h-9 px-4"
-                    disabled={vaultBusy || !currentPassphrase || nextPassphrase.length < 8}
+                    disabled={vaultBusy}
                     onClick={handleChangePassphrase}
                   >
                     {t('vault.save')}
@@ -903,7 +910,7 @@ export function SettingsPage() {
                   <Button
                     variant="secondary"
                     className="gap-1.5 text-xs h-9 px-4"
-                    disabled={vaultBusy || !currentPassphrase || !passkeySet}
+                    disabled={vaultBusy || !passkeySet}
                     onClick={handleRemovePassphrase}
                   >
                     {t('vault.removePassphrase')}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -18,14 +18,14 @@ import {
   LogIn
 } from 'lucide-react';
 import { accountApi, accountOrganizationApi, steamApi, settingsApi } from '../api';
-import type { StoredAccount, FolderItem } from '../services/storage';
+import type { StoredAccount, AccountSummary, FolderItem } from '../services/storage';
 import type { ConfirmationItem } from '../services/steamClient';
-import { generateSteamGuardCode } from '../services/steamCrypto';
-import { steamAuth } from '../services/steamAuth';
+
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
+import { SecretInput } from '../components/ui/SecretInput';
 
 export function AccountDetailPage() {
   const { t } = useTranslation();
@@ -33,7 +33,7 @@ export function AccountDetailPage() {
   const navigate = useNavigate();
   const accountId = params.id as string;
 
-  const [account, setAccount] = useState<StoredAccount | null>(null);
+  const [account, setAccount] = useState<AccountSummary | null>(null);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [confirmations, setConfirmations] = useState<ConfirmationItem[]>([]);
   const [confirmationsBusy, setConfirmationsBusy] = useState(false);
@@ -52,15 +52,18 @@ export function AccountDetailPage() {
   const [selectedFolderId, setSelectedFolderId] = useState<string>('none');
   const [selectedTagNames, setSelectedTagNames] = useState<string[]>([]);
   const [showRevocationCode, setShowRevocationCode] = useState(false);
+  const [revocationCode, setRevocationCode] = useState('');
 
-  // Session fields
+  // Session fields are never prefilled: they stay encrypted so an injected
+  // script cannot read them out of the DOM. Empty means "leave unchanged".
   const [steamLoginSecure, setSteamLoginSecure] = useState('');
   const [sessionid, setSessionid] = useState('');
   const [oauthToken, setOauthToken] = useState('');
   const [refreshToken, setRefreshToken] = useState('');
 
   // Automated Steam Login via Worker
-  const [autoLoginPassword, setAutoLoginPassword] = useState('');
+  // Parola state'e alınmıyor; yalnızca input DOM düğümünde yaşıyor.
+  const autoLoginPasswordRef = useRef<HTMLInputElement>(null);
   const [autoLoginBusy, setAutoLoginBusy] = useState(false);
   const [autoLoginStatus, setAutoLoginStatus] = useState<string | null>(null);
   const [refreshBusy, setRefreshBusy] = useState(false);
@@ -88,33 +91,41 @@ export function AccountDetailPage() {
     setSelectedTagNames(acc.tags || []);
     setTimeOffset(setRes.timeOffsetSec || 0);
 
-    setSteamLoginSecure(acc.session?.steamLoginSecure || '');
-    setSessionid(acc.session?.sessionid || '');
-    setOauthToken(acc.session?.oauthToken || '');
-    setRefreshToken(acc.session?.refreshToken || '');
+    // Session values stay in the vault; only the "is it set?" hint is shown.
+    setSteamLoginSecure('');
+    setSessionid('');
+    setOauthToken('');
+    setRefreshToken('');
+    setShowRevocationCode(false);
+    setRevocationCode('');
   }, [accountId, navigate]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  // Update live code
+  // Update live code. The code is requested from the service layer, which
+  // decrypts the shared secret only for the moment it is calculated.
   useEffect(() => {
-    if (!account?.sharedSecret) return;
+    if (!account?.secretFields.includes('sharedSecret')) return;
 
-    const updateCode = () => {
-      const code = generateSteamGuardCode(account.sharedSecret, timeOffset);
-      setCurrentCode(code);
+    const updateCode = async () => {
+      try {
+        const res = await accountApi.code(account.id);
+        setCurrentCode(res.code);
+      } catch {
+        setCurrentCode('-----');
+      }
     };
 
-    updateCode();
+    void updateCode();
 
     const interval = setInterval(() => {
       const nowSec = Math.floor(Date.now() / 1000) + timeOffset;
       const next = 30 - (nowSec % 30) || 30;
       setSecondsLeft(next);
       if (next === 30) {
-        updateCode();
+        void updateCode();
       }
     }, 1000);
 
@@ -135,7 +146,7 @@ export function AccountDetailPage() {
   }, [accountId]);
 
   useEffect(() => {
-    if (account?.session?.steamLoginSecure) {
+    if (account?.hasSession) {
       loadConfirmations();
     }
   }, [account, loadConfirmations]);
@@ -158,14 +169,20 @@ export function AccountDetailPage() {
       await accountApi.update(account.id, {
         alias: alias.trim() || account.accountName,
         folderId: selectedFolderId === 'none' ? null : selectedFolderId,
-        tags: selectedTagNames,
-        session: {
-          steamLoginSecure: steamLoginSecure.trim() || undefined,
-          sessionid: sessionid.trim() || undefined,
-          oauthToken: oauthToken.trim() || undefined,
-          refreshToken: refreshToken.trim() || undefined
-        }
+        tags: selectedTagNames
       });
+
+      // Only the fields the user actually typed are sent; the untouched ones
+      // stay encrypted in the vault.
+      const patch: Partial<NonNullable<StoredAccount['session']>> = {};
+      if (steamLoginSecure.trim()) patch.steamLoginSecure = steamLoginSecure.trim();
+      if (sessionid.trim()) patch.sessionid = sessionid.trim();
+      if (oauthToken.trim()) patch.oauthToken = oauthToken.trim();
+      if (refreshToken.trim()) patch.refreshToken = refreshToken.trim();
+      if (Object.keys(patch).length > 0) {
+        await accountApi.updateSession(account.id, patch);
+      }
+
       setMessage({ text: t('accountDetail.sessionSaved'), type: 'success' });
       await loadData();
     } catch (err: any) {
@@ -176,30 +193,22 @@ export function AccountDetailPage() {
   };
 
   const handleAutoLogin = async () => {
-    if (!account || !autoLoginPassword) return;
+    const password = autoLoginPasswordRef.current?.value ?? '';
+    if (!account || !password) return;
     setAutoLoginBusy(true);
     setAutoLoginStatus('Steam RSA anahtarı alınıyor...');
     setMessage(null);
     try {
-      const settings = await settingsApi.get();
-      const res = await steamAuth.loginWithCredentials(
-        account,
-        autoLoginPassword,
-        settings,
-        (status) => setAutoLoginStatus(status)
+      // The new session is stored by the service layer; only the outcome comes
+      // back here, so no cookie or token is rendered anywhere.
+      const res = await accountApi.autoLogin(account.id, password, (status) =>
+        setAutoLoginStatus(status)
       );
 
-      if (res.success && res.steamLoginSecure) {
-        setSteamLoginSecure(res.steamLoginSecure);
-        if (res.sessionid) setSessionid(res.sessionid);
-        if (res.oauthToken) setOauthToken(res.oauthToken);
-        if (res.refreshToken) setRefreshToken(res.refreshToken);
-        setAutoLoginPassword('');
+      if (res.success) {
+        if (autoLoginPasswordRef.current) autoLoginPasswordRef.current.value = '';
         setAutoLoginStatus(null);
-        setMessage({
-          text: t('accountDetail.autoLoginSuccess'),
-          type: 'success'
-        });
+        setMessage({ text: t('accountDetail.autoLoginSuccess'), type: 'success' });
         await loadData();
         await loadConfirmations();
       } else {
@@ -217,14 +226,13 @@ export function AccountDetailPage() {
   };
 
   const handleRefreshToken = async () => {
-    if (!account?.session?.refreshToken) return;
+    if (!account) return;
+    if (!account.secretFields.includes('session.refreshToken')) return;
     setRefreshBusy(true);
     setMessage(null);
     try {
-      const settings = await settingsApi.get();
-      const res = await steamAuth.refreshWithRefreshToken(account, settings);
-      if (res.success && res.steamLoginSecure) {
-        setSteamLoginSecure(res.steamLoginSecure);
+      const res = await accountApi.refreshSession(account.id);
+      if (res.success) {
         setMessage({
           text: t('accountDetail.refreshSuccess'),
           type: 'success'
@@ -303,7 +311,7 @@ export function AccountDetailPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-black dark:text-white tracking-tight">{account.alias}</h1>
-              {account.session?.steamLoginSecure ? (
+              {account.secretFields.includes('session.steamLoginSecure') ? (
                 <Badge variant="success" className="text-[10px]">{t('accountDetail.sessionActive')}</Badge>
               ) : (
                 <Badge variant="warning" className="text-[10px]">{t('accountDetail.sessionNeeded')}</Badge>
@@ -472,7 +480,7 @@ export function AccountDetailPage() {
               <Sparkles className="text-accent-500" size={18} />
               <h3 className="text-sm font-bold text-white">{t('accountDetail.autoLoginTitle')}</h3>
             </div>
-            {account.session?.refreshToken && (
+            {account.secretFields.includes('session.refreshToken') && (
               <Button
                 variant="secondary"
                 className="h-8 px-3 text-xs gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
@@ -489,11 +497,9 @@ export function AccountDetailPage() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-2 pt-1">
-            <Input
-              type="password"
+            <SecretInput
+              ref={autoLoginPasswordRef}
               placeholder={t('accountDetail.passwordPlaceholder')}
-              value={autoLoginPassword}
-              onChange={(e) => setAutoLoginPassword(e.target.value)}
               className="text-xs flex-1"
               disabled={autoLoginBusy}
             />
@@ -501,7 +507,7 @@ export function AccountDetailPage() {
               variant="primary"
               className="h-10 text-xs px-4 gap-2 flex-shrink-0 bg-[#00d2ff] hover:bg-[#38bdf8] text-black font-bold shadow-glow"
               onClick={handleAutoLogin}
-              disabled={autoLoginBusy || !autoLoginPassword}
+              disabled={autoLoginBusy}
             >
               <LogIn size={14} className={autoLoginBusy ? 'animate-spin' : ''} />
               {autoLoginBusy ? t('accountDetail.loggingIn') : t('accountDetail.autoLoginBtn')}
@@ -554,34 +560,49 @@ export function AccountDetailPage() {
                   {t('accountDetail.oauthToken')}
                 </label>
                 <Input
-                  placeholder={t('accountDetail.oauthTokenPlaceholder')}
+                  placeholder={
+                    account.secretFields.includes('session.oauthToken')
+                      ? t('accountDetail.oauthTokenStored')
+                      : t('accountDetail.oauthTokenPlaceholder')
+                  }
                   value={oauthToken}
                   onChange={(e) => setOauthToken(e.target.value)}
+                  autoComplete="off"
                 />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Revocation Code */}
-        {account.revocationCode && (
+        {/* Revocation Code: kept out of the DOM until the user asks for it. */}
+        {account.secretFields.includes('revocationCode') && (
           <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-xs space-y-2">
             <div className="font-semibold text-base-800 dark:text-base-200 flex items-center justify-between">
               <span>{t('accountDetail.recoveryCodeTitle')}</span>
               <button
                 type="button"
                 className="text-xs text-accent-500 hover:underline flex items-center gap-1"
-                onClick={() => setShowRevocationCode((prev) => !prev)}
+                onClick={async () => {
+                  if (showRevocationCode) {
+                    setShowRevocationCode(false);
+                    setRevocationCode('');
+                    return;
+                  }
+                  try {
+                    setRevocationCode(await accountApi.revealSecret(account.id, 'revocationCode'));
+                    setShowRevocationCode(true);
+                  } catch {
+                    setMessage({ text: t('accountDetail.recoveryCodeFailed'), type: 'error' });
+                  }
+                }}
               >
                 {showRevocationCode ? <EyeOff size={13} /> : <Eye size={13} />}
                 {showRevocationCode ? t('accountDetail.hideRecoveryCode') : t('accountDetail.showRecoveryCode')}
               </button>
             </div>
-            {showRevocationCode && (
-              <div className="font-mono text-sm font-bold tracking-wider text-base-900 dark:text-base-100">
-                {account.revocationCode}
-              </div>
-            )}
+            <div className="font-mono text-sm font-bold tracking-wider text-base-900 dark:text-base-100">
+              {showRevocationCode && revocationCode ? revocationCode : '••••••'}
+            </div>
           </div>
         )}
 

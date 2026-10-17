@@ -21,7 +21,8 @@ import {
   unwrapWithPrfKey,
   wrapWithPassphrase,
   wrapWithPrfKey,
-  type EncryptedBlob
+  type EncryptedBlob,
+  type PassphraseEnvelope
 } from './vaultCrypto';
 import { derivePrfKey, enrollPrfCredential, type PrfCredential } from './prfVault';
 import { base64ToUint8Array, uint8ArrayToBase64 } from './steamCrypto';
@@ -29,11 +30,7 @@ import { VaultError, type VaultErrorCode } from './vaultErrors';
 
 export type VaultStatus = 'disabled' | 'locked' | 'unlocked';
 
-export interface VaultRecoveryEnvelope {
-  salt: string;
-  iterations: number;
-  blob: EncryptedBlob;
-}
+export type VaultRecoveryEnvelope = PassphraseEnvelope;
 
 export interface VaultConfig {
   version: 2;

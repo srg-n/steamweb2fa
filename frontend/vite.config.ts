@@ -27,6 +27,19 @@ function extraConnectOrigins(env: Record<string, string>): string {
   return ` ${origins.join(' ')}`;
 }
 
+/**
+ * Makes a chunk safe to run from inside index.html.
+ *
+ * Vite's dynamic import helper takes the dev-time dependency optimizer as an
+ * argument. In a single-file build that global is never defined, so the first
+ * lazy import (the vault loads Argon2id that way) would throw a ReferenceError.
+ * `undefined` is the correct value here: with inlineDynamicImports there are no
+ * separate chunks left to pre-bundle.
+ */
+function inlineableCode(code: string): string {
+  return code.replace(/\b__VITE_PRELOAD__\b/g, 'undefined');
+}
+
 function inlineSingleHtmlPlugin() {
   return {
     name: 'inline-single-html',
@@ -63,7 +76,7 @@ function inlineSingleHtmlPlugin() {
           );
           html = html.replace(
             '</body>',
-            () => `<script type="module">\n${chunk.code}\n</script>\n</body>`
+            () => `<script type="module">\n${inlineableCode(chunk.code)}\n</script>\n</body>`
           );
         }
       }
@@ -118,10 +131,11 @@ function injectCspPlugin(extraConnectOrigins: string) {
       "worker-src 'self' blob:",
       "manifest-src 'self'",
       "form-action 'none'",
-      // Scripts: only the hashed inline bundle we just inlined. No
-      // 'unsafe-inline', no 'unsafe-eval'. This is the control that stops
-      // DOM XSS from turning into code execution.
-      ["script-src 'self'", ...hashes].join(' '),
+      // Scripts: only the hashed inline bundle we just inlined. No 'unsafe-inline',
+      // no 'unsafe-eval'. 'wasm-unsafe-eval' only permits WebAssembly
+      // instantiation, which Argon2id needs for the vault's key derivation; it
+      // does not re-enable eval() of JavaScript.
+      ["script-src 'self' 'wasm-unsafe-eval'", ...hashes].join(' '),
       // Tailwind CSS and React inline style attributes still need inline
       // styles; style injection is a far weaker vector than script injection.
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",

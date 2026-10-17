@@ -14,7 +14,7 @@
  * least one recovery path and makes the choice explicit.
  */
 
-import { base64ToUint8Array, uint8ArrayToBase64 } from './steamCrypto';
+import { base64ToUint8Array, uint8ArrayToBase64, uint8ArrayToHex } from './steamCrypto';
 
 const IV_BYTES = 12;
 const SALT_BYTES = 16;
@@ -121,19 +121,99 @@ export async function importDataKey(raw: Uint8Array): Promise<CryptoKey> {
 // Passphrase wrapping (recovery path)
 // ---------------------------------------------------------------------------
 
+/**
+ * Argon2id parameters for the recovery passphrase.
+ *
+ * Memory-hard derivation is what makes offline guessing expensive on GPUs and
+ * ASICs; PBKDF2 is only CPU-bound. 19 MiB / 2 passes follows the OWASP
+ * recommendation for a second-preference KDF.
+ */
+const ARGON2_MEMORY_KIB = 19 * 1024;
+const ARGON2_ITERATIONS = 2;
+const ARGON2_PARALLELISM = 1;
+
+type Argon2Kind = 'argon2id' | 'pbkdf2-sha256';
+
 export interface PassphraseEnvelope {
+  /** Which KDF produced `blob`, so the format can evolve without guessing. */
+  kdf: Argon2Kind;
   salt: string;
+  /** PBKDF2 iteration count; unused for Argon2id. */
   iterations: number;
   blob: EncryptedBlob;
+}
+
+/**
+ * Derives the wrapping key from the passphrase.
+ *
+ * Argon2id is used when the WebAssembly module can be loaded; otherwise the
+ * built-in PBKDF2 path takes over. Both produce a 32-byte key, so a vault
+ * written by one can always be opened by the other.
+ */
+async function deriveWrappingKey(
+  passphrase: string,
+  salt: Uint8Array,
+  kdf: Argon2Kind
+): Promise<CryptoKey> {
+  const normalised = passphrase.normalize('NFKC');
+
+  if (kdf === 'argon2id') {
+    const { argon2id } = await import('hash-wasm');
+    const hex = await argon2id({
+      password: normalised,
+      salt: toHex(salt),
+      parallelism: ARGON2_PARALLELISM,
+      iterations: ARGON2_ITERATIONS,
+      memorySize: ARGON2_MEMORY_KIB,
+      hashLength: 32,
+      outputType: 'hex'
+    });
+    return importAesKey(fromHex(hex), ['encrypt', 'decrypt']);
+  }
+
+  const material = await subtle().importKey(
+    'raw',
+    new TextEncoder().encode(normalised) as BufferSource,
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  return subtle().deriveKey(
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    material,
+    DATA_ALG,
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/** Argon2id when the runtime allows it, PBKDF2 as the safety net. */
+async function preferredKdf(): Promise<Argon2Kind> {
+  try {
+    // A missing module, a CSP without 'wasm-unsafe-eval' or a locked-down
+    // runtime all surface here as a rejection.
+    await import('hash-wasm');
+    return 'argon2id';
+  } catch (err) {
+    // Say so once: silently using the weaker KDF would be a surprise.
+    console.warn(
+      `[SteamGuard] Argon2id is unavailable, falling back to PBKDF2: ${String(
+        (err as Error)?.message ?? err
+      )}`
+    );
+    return 'pbkdf2-sha256';
+  }
 }
 
 export async function wrapWithPassphrase(
   rawDek: Uint8Array,
   passphrase: string
 ): Promise<PassphraseEnvelope> {
+  const kdf = await preferredKdf();
   const salt = randomBytes(SALT_BYTES);
-  const wrapKey = await derivePassphraseKey(passphrase, salt, PBKDF2_ITERATIONS);
+  const wrapKey = await deriveWrappingKey(passphrase, salt, kdf);
   return {
+    kdf,
     salt: uint8ArrayToBase64(salt),
     iterations: PBKDF2_ITERATIONS,
     blob: await encryptField(wrapKey, 'vault', 'dek', uint8ArrayToBase64(rawDek))
@@ -145,30 +225,22 @@ export async function unwrapWithPassphrase(
   passphrase: string
 ): Promise<Uint8Array> {
   const salt = base64ToUint8Array(envelope.salt);
-  const wrapKey = await derivePassphraseKey(passphrase, salt, envelope.iterations);
+  const kdf = envelope.kdf ?? 'pbkdf2-sha256';
+  const wrapKey = await deriveWrappingKey(passphrase, salt, kdf);
   const raw = await decryptField(wrapKey, 'vault', 'dek', envelope.blob);
   return base64ToUint8Array(raw);
 }
 
-async function derivePassphraseKey(
-  passphrase: string,
-  salt: Uint8Array,
-  iterations: number
-): Promise<CryptoKey> {
-  const material = await subtle().importKey(
-    'raw',
-    new TextEncoder().encode(passphrase.normalize('NFKC')) as BufferSource,
-    'PBKDF2',
-    false,
-    ['deriveKey']
-  );
-  return subtle().deriveKey(
-    { name: 'PBKDF2', salt: salt as BufferSource, iterations, hash: 'SHA-256' },
-    material,
-    DATA_ALG,
-    false,
-    ['encrypt', 'decrypt']
-  );
+function toHex(bytes: Uint8Array): string {
+  return uint8ArrayToHex(bytes);
+}
+
+function fromHex(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -6,11 +6,11 @@
  * rather than returning empty results.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Lock, ShieldCheck, KeyRound, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from './ui/Button';
-import { Input } from './ui/Input';
+import { SecretInput } from './ui/SecretInput';
 import {
   attachAutoLock,
   getVaultConfig,
@@ -31,9 +31,11 @@ export function VaultLockGate({ children }: { children: React.ReactNode }) {
     loaded: isVaultConfigLoaded(),
     status: getVaultStatus()
   }));
-  const [passphrase, setPassphrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The passphrase lives in the input element only. A controlled field would
+  // copy it into the `value` attribute, i.e. into the page markup.
+  const passphraseRef = useRef<HTMLInputElement>(null);
 
   // Until the config is known we treat the vault as locked, otherwise a record
   // written by the vault could be read as plain text during startup.
@@ -56,6 +58,9 @@ export function VaultLockGate({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       await run();
+      // Whether it succeeded or not, the typed passphrase has served its
+      // purpose; keeping it around only widens the window for a leak.
+      if (passphraseRef.current) passphraseRef.current.value = '';
     } catch (err) {
       // WebCrypto and some browsers reject with an empty message; describeVaultError
       // turns known failures into a translated sentence and never returns blank.
@@ -63,6 +68,14 @@ export function VaultLockGate({ children }: { children: React.ReactNode }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const unlockWithTypedPassphrase = () => {
+    const typed = passphraseRef.current?.value ?? '';
+    if (!typed) return undefined;
+    return withBusy(async () => {
+      await unlockWithPassphrase(typed);
+    });
   };
 
   if (!locked) return <>{children}</>;
@@ -105,23 +118,19 @@ export function VaultLockGate({ children }: { children: React.ReactNode }) {
 
           {passphraseAvailable && (
             <div className="space-y-2">
-              <Input
-                type="password"
+              <SecretInput
+                ref={passphraseRef}
                 autoComplete="current-password"
-                value={passphrase}
                 placeholder={t('vault.passphrasePlaceholder')}
-                onChange={(e) => setPassphrase(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && passphrase) {
-                    void withBusy(() => unlockWithPassphrase(passphrase));
-                  }
+                  if (e.key === 'Enter') void unlockWithTypedPassphrase();
                 }}
               />
               <Button
                 variant="secondary"
                 className="w-full gap-2"
-                disabled={busy || !passphrase}
-                onClick={() => withBusy(() => unlockWithPassphrase(passphrase))}
+                disabled={busy}
+                onClick={unlockWithTypedPassphrase}
               >
                 <KeyRound size={16} />
                 {t('vault.unlockWithPassphrase')}

@@ -17,15 +17,15 @@ import {
   X
 } from 'lucide-react';
 import { accountApi, accountOrganizationApi, settingsApi } from '../api';
-import type { StoredAccount, FolderItem, TagItem } from '../services/storage';
-import { generateSteamGuardCode } from '../services/steamCrypto';
+import type { StoredAccount, AccountSummary, FolderItem, TagItem } from '../services/storage';
+
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 
 export function AccountsPage() {
   const { t } = useTranslation();
-  const [accounts, setAccounts] = useState<StoredAccount[]>([]);
+  const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [tags, setTags] = useState<TagItem[]>([]);
   const [timeOffset, setTimeOffset] = useState<number>(0);
@@ -81,23 +81,22 @@ export function AccountsPage() {
     loadData();
   }, [loadData]);
 
-  // Recalculate 2FA codes for all accounts
-  const updateLiveCodes = useCallback(
-    (offset = timeOffset) => {
-      const codes: Record<string, string> = {};
-      for (const acc of accounts) {
-        if (acc.sharedSecret) {
-          codes[acc.id] = generateSteamGuardCode(acc.sharedSecret, offset);
-        }
-      }
-      setLiveCodes(codes);
-    },
-    [accounts, timeOffset]
-  );
+  // Live codes are fetched from the service layer, which decrypts the secret
+  // only while computing them. No secret is ever kept in component state.
+  const updateLiveCodes = useCallback(async () => {
+    try {
+      const res = await accountApi.liveCodes();
+      const next: Record<string, string> = {};
+      for (const item of res.items) next[item.accountId] = item.code;
+      setLiveCodes(next);
+    } catch (err) {
+      console.error('Failed to generate Steam Guard codes:', err);
+    }
+  }, []);
 
   // Synchronous tick every 1000ms for exact Steam 30s TOTP interval
   useEffect(() => {
-    updateLiveCodes();
+    void updateLiveCodes();
 
     const interval = setInterval(() => {
       const nowSec = Math.floor(Date.now() / 1000) + timeOffset;
@@ -106,7 +105,7 @@ export function AccountsPage() {
 
       // When the 30-second window turns over, regenerate all codes
       if (nextSeconds === 30) {
-        updateLiveCodes();
+        void updateLiveCodes();
       }
     }, 1000);
 
@@ -432,7 +431,7 @@ export function AccountsPage() {
                       {account.steamid}
                     </span>
                   )}
-                  {account.session?.steamLoginSecure ? (
+                  {account.secretFields.includes('session.steamLoginSecure') ? (
                     <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 font-bold text-emerald-600 dark:text-emerald-400 text-[10px] tracking-wide">
                       {t('accounts.sessionActive')}
                     </span>

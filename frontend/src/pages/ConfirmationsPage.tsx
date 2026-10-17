@@ -15,15 +15,17 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { accountApi, steamApi } from '../api';
-import type { StoredAccount } from '../services/storage';
+import type { AccountSummary } from '../services/storage';
 import type { ConfirmationItem } from '../services/steamClient';
+import { isSessionError } from '../services/steamErrors';
 import { Card } from '../components/ui/Card';
+import { SessionRefreshCard } from '../components/SessionRefreshCard';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 
 export function ConfirmationsPage() {
   const { t } = useTranslation();
-  const [accounts, setAccounts] = useState<StoredAccount[]>([]);
+  const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
   const [confirmations, setConfirmations] = useState<ConfirmationItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -40,6 +42,8 @@ export function ConfirmationsPage() {
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isCorsBlocked, setIsCorsBlocked] = useState(false);
   const [directSteamUrl, setDirectSteamUrl] = useState<string>('https://steamcommunity.com/mobileconf/conf');
+  // Steam reddettiği hesaplar; kullanıcı buradan oturumu yenileyebilir.
+  const [expiredAccountIds, setExpiredAccountIds] = useState<string[]>([]);
 
   // Auto-refresh interval (in seconds, 0 = off)
   const [autoRefreshSec, setAutoRefreshSec] = useState<number>(30);
@@ -72,11 +76,13 @@ export function ConfirmationsPage() {
       setDirectSteamUrl(url);
 
       if (selectedAccountId === 'all') {
-        const items = await steamApi.allConfirmations();
-        setConfirmations(items);
+        const res = await steamApi.allConfirmations();
+        setConfirmations(res.items);
+        setExpiredAccountIds(res.sessionExpiredAccountIds);
       } else {
         const items = await steamApi.confirmations(selectedAccountId);
         setConfirmations(items);
+        setExpiredAccountIds([]);
       }
     } catch (err: any) {
       if (err?.message?.includes('RATE_LIMITED') || err?.message?.includes('429')) {
@@ -89,6 +95,13 @@ export function ConfirmationsPage() {
       } else if (err?.message === 'CORS_BLOCKED') {
         setIsCorsBlocked(true);
       } else {
+        if (isSessionError(err)) {
+          // Steam oturumu reddetti: hesabı hatırlat ki kart görünsün.
+          const ids = err?.accountId ? [err.accountId] : [];
+          setExpiredAccountIds(ids);
+        } else {
+          setExpiredAccountIds([]);
+        }
         setMessage({
           text: err?.message || t('confirmations.fetchFailed'),
           type: 'error'
@@ -218,11 +231,33 @@ export function ConfirmationsPage() {
   }, [autoConfirmEnabled, confirmations.length, batchBusy, loading]);
 
   const missingSessionAccounts = useMemo(() => {
-    return accounts.filter((a) => !a.session?.steamLoginSecure && !a.session?.oauthToken);
+    return accounts.filter(
+      (a) => !a.secretFields.includes('session.steamLoginSecure') && !a.secretFields.includes('session.oauthToken')
+    );
   }, [accounts]);
+
+  // Steam oturumu reddetti hesaplar: kullanıcı buradan yenileyebilsin.
+  const expiredAccounts = useMemo(
+    () => accounts.filter((a) => expiredAccountIds.includes(a.id)),
+    [accounts, expiredAccountIds]
+  );
 
   return (
     <div className="space-y-4 max-w-full overflow-hidden">
+      {expiredAccounts.map((account) => (
+        <SessionRefreshCard
+          key={account.id}
+          accountId={account.id}
+          accountAlias={account.alias}
+          onDismiss={() =>
+            setExpiredAccountIds((prev) => prev.filter((id) => id !== account.id))
+          }
+          onRefreshed={async () => {
+            setMessage({ text: t('sessionRefresh.success'), type: 'success' });
+            await fetchConfirmations();
+          }}
+        />
+      ))}
       {/* Rate Limit Warning Banner */}
       {isRateLimited && (
         <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3.5 sm:p-4 text-xs sm:text-sm text-amber-300 flex items-start gap-2.5 shadow-glow">

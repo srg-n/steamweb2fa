@@ -1,5 +1,6 @@
 import type { StoredAccount, AppSettings } from './storage';
 import i18n from '../i18n';
+import { SteamApiError, steamBodyLooksExpired } from './steamErrors';
 
 /**
  * Builds a user-facing error for a failed Steam confirmation response.
@@ -209,7 +210,11 @@ export class SteamClient {
     }
 
     if (!account.session?.steamLoginSecure) {
-      throw new Error(i18n.t('session.missingCookie', { alias: account.alias }));
+      throw new SteamApiError(
+        'SESSION_MISSING',
+        i18n.t('session.missingCookie', { alias: account.alias }),
+        account.id
+      );
     }
 
     const steamid = account.steamid || '0';
@@ -267,9 +272,17 @@ export class SteamClient {
 
     if (!response.ok) {
       if (response.status === 429) {
-        throw new Error(`RATE_LIMITED: ${i18n.t('session.rateLimited', { seconds: 30 })}`);
+        throw new SteamApiError(
+          'RATE_LIMITED',
+          `RATE_LIMITED: ${i18n.t('session.rateLimited', { seconds: 30 })}`,
+          account.id
+        );
       }
-      throw new Error(i18n.t('session.httpFail', { status: response.status }));
+      throw new SteamApiError(
+        'SESSION_EXPIRED',
+        i18n.t('session.httpFail', { status: response.status }),
+        account.id
+      );
     }
 
     let data: any;
@@ -277,12 +290,26 @@ export class SteamClient {
       data = await response.json();
     } catch {
       if (!settings.corsProxyUrl) {
-        throw new Error('CORS_BLOCKED');
+        throw new SteamApiError('CORS_BLOCKED', 'CORS_BLOCKED', account.id);
       }
-      throw new Error(i18n.t('session.expired', { alias: account.alias }));
+      // Steam returns an empty body when the cookie is no longer valid.
+      throw new SteamApiError(
+        'SESSION_EXPIRED',
+        i18n.t('session.expired', { alias: account.alias }),
+        account.id
+      );
     }
 
     if (!data.success) {
+      // `needauth` is Steam's own "log in again" answer, so it is the one
+      // case where the message alone is not enough to act on.
+      if (steamBodyLooksExpired(data)) {
+        throw new SteamApiError(
+          'SESSION_EXPIRED',
+          describeSteamError(data, account.alias),
+          account.id
+        );
+      }
       throw new Error(describeSteamError(data, account.alias));
     }
 
@@ -507,7 +534,11 @@ export class SteamClient {
   ): Promise<boolean> {
     const accessToken = account.session?.oauthToken;
     if (!accessToken) {
-      throw new Error(i18n.t('session.missingAccessToken'));
+      throw new SteamApiError(
+        'SESSION_EXPIRED',
+        i18n.t('session.missingAccessToken'),
+        account.id
+      );
     }
 
     let clientId = confirmationId.replace('auth:', '');
@@ -550,9 +581,19 @@ export class SteamClient {
 
     if (!response.ok) {
       if (response.status === 429) {
-        throw new Error(`RATE_LIMITED: ${i18n.t('session.rateLimitedAuth')}`);
+        throw new SteamApiError(
+          'RATE_LIMITED',
+          `RATE_LIMITED: ${i18n.t('session.rateLimitedAuth')}`,
+          account.id
+        );
       }
-      throw new Error(i18n.t('session.authHttpFail', { status: response.status }));
+      // A rejected access token comes back as 401; the UI must offer a
+      // refresh here, so the code travels with the message.
+      throw new SteamApiError(
+        'SESSION_EXPIRED',
+        i18n.t('session.authHttpFail', { status: response.status }),
+        account.id
+      );
     }
 
     return true;

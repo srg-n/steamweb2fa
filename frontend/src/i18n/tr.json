@@ -342,5 +342,15 @@
   "vault.error.timeout": "Cihaz passkey penceresini zamanında tamamlamadı. Tekrar deneyin veya kurtarma parolasını kullanın.",
   "vault.passkeyNotUsable": "Passkey oluşturuldu ama bu cihaz onu kasa şifrelemesi için kullanamıyor. Kasa şu anda kurtarma parolanla korunuyor — hiçbir şey kaybolmadı. Cihazınız desteklediği takdirde çalışan bir passkey’i daha sonra ekleyebilirsiniz.",
   "vault.prfUnavailable": "Bu cihaz daha önce bir passkey oluşturdu ama onu kasa şifrelemesi için kullanamadı, bu yüzden seçenek gizlendi. Bir Windows güncellemesi bunu düzeltebilir.",
-  "vault.passkeyRetry": "Yine de dene"
+  "vault.passkeyRetry": "Yine de dene",
+  "sessionRefresh.title": "Oturumun sona erdi ({{alias}})",
+  "sessionRefresh.desc": "Steam bu oturumu artık kabul etmiyor. Hesap ayarlarına girmeden buradan yenileyebilirsin.",
+  "sessionRefresh.refreshBtn": "Oturumu Yenile",
+  "sessionRefresh.refreshing": "Yenileniyor...",
+  "sessionRefresh.loginBtn": "Parola ile Giriş Yap",
+  "sessionRefresh.passwordPlaceholder": "Steam parolası",
+  "sessionRefresh.success": "Oturum yenilendi.",
+  "sessionRefresh.refreshFailed": "Oturum yenilenemedi. Steam parolanla giriş yap.",
+  "sessionRefresh.noRefreshToken": "Bu hesap için kayıtlı yenileme jetonu yok. Steam parolanla giriş yap.",
+  "sessionRefresh.loginFailed": "Steam girişi başarısız. Parolanı kontrol et."
 }

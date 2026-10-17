@@ -11,6 +11,9 @@ coverage/
 .vite/
 .cache/
 *.tsbuildinfo
+# Compiled copy of vite.config.ts. Vite prefers vite.config.js over
+# vite.config.ts, so a stale copy here silently ignores the real config.
+frontend/vite.config.js
 
 # Env & Secrets
 .env

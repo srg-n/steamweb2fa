@@ -1,5 +1,6 @@
 // IndexedDB Client-Side Database: 100% Serverless Storage
 import { decryptField, encryptField, type EncryptedBlob } from './vaultCrypto';
+import { generateSteamGuardCode } from './steamCrypto';
 import {
   configureVaultPersistence,
   getVaultStatus,
@@ -41,6 +42,20 @@ export interface StoredAccount {
   /** AES-GCM blobs for every secret field of this account. */
   secrets?: Record<string, EncryptedBlob>;
 }
+
+/**
+ * Everything the UI needs to render an account, and nothing more: secret
+ * fields are never decrypted for list views. `secretFields` only says which
+ * fields exist, so the UI can show "masked" placeholders without holding the
+ * values in memory (and therefore without exposing them to injected scripts).
+ */
+export type AccountSummary = Omit<
+  StoredAccount,
+  'sharedSecret' | 'identitySecret' | 'revocationCode' | 'lastCode' | 'session' | 'secrets'
+> & {
+  secretFields: SecretField[];
+  hasSession: boolean;
+};
 
 export interface FolderItem {
   id: string;
@@ -105,6 +120,9 @@ export class StorageUnavailableError extends Error {
 
 /** Fired once per session so the UI can warn the user. */
 export const STORAGE_UNAVAILABLE_EVENT = 'steamguard:storage-unavailable';
+
+/** Guards against two concurrent vault migrations (see migrateToVault). */
+let migrationInFlight: Promise<{ migrated: number }> | null = null;
 
 let storageWarningSent = false;
 
@@ -255,43 +273,89 @@ class ClientDatabase {
   // Accounts contain Steam shared/identity secrets, so they live only in
   // IndexedDB. There is deliberately no localStorage fallback and no mirror:
   // an unreachable vault is reported instead of silently downgraded.
-  async getAccounts(): Promise<StoredAccount[]> {
+
+  /**
+   * List view: metadata only. Secrets stay encrypted, so nothing sensitive is
+   * handed to the UI (and therefore to any script running on the page).
+   */
+  async getAccounts(): Promise<AccountSummary[]> {
+    const rows = await this.readAllAccounts();
+    return rows.map(toSummary);
+  }
+
+  async getAccount(id: string): Promise<AccountSummary | null> {
+    const row = await this.readAccountRecord(id);
+    return row ? toSummary(row) : null;
+  }
+
+  /**
+   * Full plain-text record. Only for the service layer (Steam requests, .maFile
+   * export) — never hand the result to a component.
+   */
+  async getAccountWithSecrets(id: string): Promise<StoredAccount | null> {
+    const row = await this.readAccountRecord(id);
+    if (!row) return null;
+    return row.v === 2 ? await decryptAccountSecrets(row) : row;
+  }
+
+  /** One secret field, decrypted on demand (explicit "reveal" actions). */
+  async getSecret(id: string, field: SecretField): Promise<string | undefined> {
+    const row = await this.readAccountRecord(id);
+    if (!row) return undefined;
+    const record = row.v === 2 ? await decryptAccountSecrets(row) : row;
+    return readSecret(record, field);
+  }
+
+  /**
+   * Live Steam Guard codes for every account. Secrets are decrypted here and
+   * dropped immediately; callers only ever see the five digit codes.
+   */
+  async getLiveCodes(
+    timeOffsetSec = 0,
+    onlyIds?: string[]
+  ): Promise<{ accountId: string; code: string }[]> {
+    const rows = await this.readAllAccounts();
+    const items: { accountId: string; code: string }[] = [];
+
+    for (const row of rows) {
+      if (onlyIds && !onlyIds.includes(row.id)) continue;
+      const record = row.v === 2 ? await decryptAccountSecrets(row) : row;
+      if (!record.sharedSecret) continue;
+      items.push({ accountId: row.id, code: generateSteamGuardCode(record.sharedSecret, timeOffsetSec) });
+    }
+
+    return items;
+  }
+
+  private async readAccountRecord(id: string): Promise<StoredAccount | null> {
     try {
       const store = await this.getStore('accounts');
-      const rows = await new Promise<StoredAccount[]>((resolve, reject) => {
-        const req = store.getAll();
-        req.onsuccess = () => resolve(req.result || []);
+      return await new Promise<StoredAccount | null>((resolve, reject) => {
+        const req = store.get(id);
+        req.onsuccess = () => resolve(req.result || null);
         req.onerror = () => reject(req.error);
       });
-
-      const out: StoredAccount[] = [];
-      for (const row of rows) {
-        out.push(row.v === 2 ? await decryptAccountSecrets(row) : row);
-      }
-      return out;
     } catch (err) {
       // VaultLockedError must reach the caller: showing "no accounts" would be
       // a lie, and it must not be confused with a storage failure.
       if (err instanceof VaultLockedError) throw err;
       notifyStorageUnavailable(err);
-      return [];
+      return null;
     }
   }
 
-  async getAccount(id: string): Promise<StoredAccount | null> {
+  private async readAllAccounts(): Promise<StoredAccount[]> {
     try {
       const store = await this.getStore('accounts');
-      const row = await new Promise<StoredAccount | null>((resolve, reject) => {
-        const req = store.get(id);
-        req.onsuccess = () => resolve(req.result || null);
+      return await new Promise<StoredAccount[]>((resolve, reject) => {
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => reject(req.error);
       });
-      if (!row) return null;
-      return row.v === 2 ? await decryptAccountSecrets(row) : row;
     } catch (err) {
       if (err instanceof VaultLockedError) throw err;
       notifyStorageUnavailable(err);
-      return null;
+      return [];
     }
   }
 
@@ -624,6 +688,16 @@ class ClientDatabase {
    */
   async migrateToVault(): Promise<{ migrated: number }> {
     if (!isVaultUnlocked()) return { migrated: 0 };
+    // The automatic migration on unlock and an explicit call can overlap;
+    // running it twice concurrently would rewrite records for nothing.
+    if (migrationInFlight) return migrationInFlight;
+    migrationInFlight = this.runVaultMigration().finally(() => {
+      migrationInFlight = null;
+    });
+    return migrationInFlight;
+  }
+
+  private async runVaultMigration(): Promise<{ migrated: number }> {
 
     const rows = await this.readAllAccounts();
 
@@ -684,16 +758,6 @@ class ClientDatabase {
     return { migrated };
   }
 
-  /** Plain read of every account row. */
-  private async readAllAccounts(): Promise<StoredAccount[]> {
-    const store = await this.getStore('accounts');
-    return new Promise<StoredAccount[]>((resolve, reject) => {
-      const req = store.getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    });
-  }
-
   /** Writes one record in its own transaction. */
   private async writeAccount(account: StoredAccount): Promise<void> {
     const store = await this.getStore('accounts', 'readwrite');
@@ -712,12 +776,20 @@ class ClientDatabase {
    * therefore means using a backup file as the recovery path.
    */
   async exportFullBackup(): Promise<string> {
-    const [accounts, folders, tags, settings] = await Promise.all([
+    const [summaries, folders, tags, settings] = await Promise.all([
       this.getAccounts(),
       this.getFolders(),
       this.getTags(),
       this.getSettings()
     ]);
+
+    // The backup is the user's portable copy, so it must contain the real
+    // secrets - fetched explicitly here instead of through the list view.
+    const accounts: StoredAccount[] = [];
+    for (const summary of summaries) {
+      const full = await this.getAccountWithSecrets(summary.id);
+      if (full) accounts.push(full);
+    }
 
     const backup = {
       version: '1.0.0',
@@ -782,6 +854,8 @@ const SECRET_FIELDS = [
 ] as const;
 
 type SecretField = (typeof SECRET_FIELDS)[number];
+
+export type { SecretField };
 
 function readSecret(account: StoredAccount, field: SecretField): string | undefined {
   switch (field) {
@@ -883,6 +957,43 @@ async function decryptAccountSecrets(record: StoredAccount): Promise<StoredAccou
   delete out.secrets;
   delete out.v;
   return out;
+}
+
+/**
+ * Strips the secrets from a record for UI use. Plain-text records (pre-vault)
+ * are reduced the same way, so the UI never learns whether a secret is
+ * encrypted or not.
+ */
+function toSummary(record: StoredAccount): AccountSummary {
+  const secrets = record.secrets;
+  const session = record.session;
+
+  const summary: AccountSummary = {
+    id: record.id,
+    alias: record.alias,
+    accountName: record.accountName,
+    steamid: record.steamid,
+    autoConfirmTrades: record.autoConfirmTrades,
+    autoConfirmTradeMode: record.autoConfirmTradeMode,
+    autoConfirmLogins: record.autoConfirmLogins,
+    autoConfirmDelaySec: record.autoConfirmDelaySec,
+    folderId: record.folderId,
+    tags: record.tags,
+    pinned: record.pinned,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    secretFields: [],
+    hasSession: Boolean(session && Object.keys(session).length > 0)
+  };
+
+  for (const field of SECRET_FIELDS) {
+    const present = secrets
+      ? Boolean(secrets[field])
+      : Boolean(readSecret(record, field));
+    if (present) summary.secretFields.push(field);
+  }
+
+  return summary;
 }
 
 function vaultActive(): boolean {

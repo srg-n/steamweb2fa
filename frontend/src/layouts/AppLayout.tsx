@@ -40,8 +40,8 @@ export function AppLayout() {
     let isMounted = true;
     const checkConfirmations = async () => {
       try {
-        const items = await steamApi.allConfirmations();
-        if (isMounted) setPendingCount(items.length);
+        const res = await steamApi.allConfirmations();
+        if (isMounted) setPendingCount(res.items.length);
       } catch {
         // ignore in background
       }

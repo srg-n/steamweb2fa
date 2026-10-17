@@ -48,9 +48,12 @@ describe('storage: encrypted records', () => {
     await db.saveAccount(account);
 
     const rows = await storage.db.getAccounts();
-    expect(rows[0].sharedSecret).toBe(account.sharedSecret);
-    expect(rows[0].v).toBeUndefined();
-    expect(rows[0].secrets).toBeUndefined();
+    // The UI never receives secrets, vault or not.
+    expect(rows[0].secretFields).toContain('sharedSecret');
+    expect((rows[0] as any).sharedSecret).toBeUndefined();
+
+    const full = await db.getAccountWithSecrets(account.id);
+    expect(full?.sharedSecret).toBe(account.sharedSecret);
   });
 
   it('encrypts every secret field once the vault is enabled', async () => {
@@ -69,9 +72,9 @@ describe('storage: encrypted records', () => {
     // The ciphertext must not contain the secret anywhere.
     expect(JSON.stringify(raw.secrets)).not.toContain(account.sharedSecret);
 
-    const [restored] = await db.getAccounts();
-    expect(restored.sharedSecret).toBe(account.sharedSecret);
-    expect(restored.revocationCode).toBe('R12345');
+    const restored = await db.getAccountWithSecrets(account.id);
+    expect(restored?.sharedSecret).toBe(account.sharedSecret);
+    expect(restored?.revocationCode).toBe('R12345');
   });
 
   it('encrypts session tokens as well', async () => {
@@ -87,22 +90,31 @@ describe('storage: encrypted records', () => {
     expect(raw.session).toBeUndefined();
     expect(Object.keys(raw.secrets)).toContain('session.oauthToken');
 
-    const [restored] = await db.getAccounts();
-    expect(restored.session).toEqual({
+    const restored = await db.getAccountWithSecrets(account.id);
+    expect(restored?.session).toEqual({
       steamLoginSecure: 'cookie',
       oauthToken: 'jwt',
       refreshToken: 'refresh'
     });
   });
 
-  it('refuses to read records while the vault is locked', async () => {
+  it('refuses to hand out secrets while the vault is locked', async () => {
     const { db, vault } = await boot();
     await vault.enableVault({ usePasskey: false, usePassphrase: true, passphrase: PASSPHRASE });
     await db.saveAccount(account);
     vault.lockVault();
 
-    await expect(db.getAccounts()).rejects.toThrow(vault.VaultLockedError);
-    await expect(db.getAccount(account.id)).rejects.toThrow(vault.VaultLockedError);
+    // Metadata is fine to read: it holds no secret.
+    const summaries = await db.getAccounts();
+    expect(summaries).toHaveLength(1);
+    expect((summaries[0] as any).sharedSecret).toBeUndefined();
+
+    // Anything that reveals a secret must fail loudly instead of returning
+    // empty results, so the UI cannot show "no accounts" instead of "locked".
+    await expect(db.getAccountWithSecrets(account.id)).rejects.toThrow(vault.VaultLockedError);
+    await expect(db.getSecret(account.id, 'sharedSecret')).rejects.toThrow(vault.VaultLockedError);
+    await expect(db.getLiveCodes(0)).rejects.toThrow(vault.VaultLockedError);
+
     // Writing is refused too, so nothing is silently stored as plain text.
     await expect(db.saveAccount(account)).rejects.toThrow(vault.VaultLockedError);
   });
@@ -123,8 +135,8 @@ describe('storage: encrypted records', () => {
     expect(settingsRaw.value.corsProxySecret).toBeUndefined();
     expect(settingsRaw.secrets.corsProxySecret).toBeTruthy();
 
-    const [restored] = await db.getAccounts();
-    expect(restored.sharedSecret).toBe(account.sharedSecret);
+    const restored = await db.getAccountWithSecrets(account.id);
+    expect(restored?.sharedSecret).toBe(account.sharedSecret);
     expect((await db.getSettings()).corsProxySecret).toBe('proxy-secret');
   });
 
@@ -139,8 +151,8 @@ describe('storage: encrypted records', () => {
     const second = await readRawRecord(storage, account.id);
 
     expect(second.secrets).toEqual(first.secrets);
-    const [restored] = await db.getAccounts();
-    expect(restored.sharedSecret).toBe(account.sharedSecret);
+    const restored = await db.getAccountWithSecrets(account.id);
+    expect(restored?.sharedSecret).toBe(account.sharedSecret);
   });
 
   it('writes records back in plain text when the vault is turned off', async () => {
@@ -159,8 +171,37 @@ describe('storage: encrypted records', () => {
     expect(plaintext.v).toBeUndefined();
     expect(plaintext.secrets).toBeUndefined();
 
-    const [restored] = await db.getAccounts();
-    expect(restored.sharedSecret).toBe(account.sharedSecret);
+    const restored = await db.getAccountWithSecrets(account.id);
+    expect(restored?.sharedSecret).toBe(account.sharedSecret);
+  });
+
+  it('returns secrets on demand instead of with the list', async () => {
+    const { db, vault } = await boot();
+    await vault.enableVault({ usePasskey: false, usePassphrase: true, passphrase: PASSPHRASE });
+    await db.saveAccount(account);
+
+    const [summary] = await db.getAccounts();
+    // Nothing sensitive in the list payload.
+    expect((summary as any).sharedSecret).toBeUndefined();
+    expect((summary as any).identitySecret).toBeUndefined();
+    expect(summary.secretFields).toEqual(
+      expect.arrayContaining(['sharedSecret', 'identitySecret', 'revocationCode'])
+    );
+
+    // Explicit, field-scoped read.
+    await expect(db.getSecret(account.id, 'revocationCode')).resolves.toBe('R12345');
+  });
+
+  it('produces codes without ever exposing the secret', async () => {
+    const { db, vault } = await boot();
+    await vault.enableVault({ usePasskey: false, usePassphrase: true, passphrase: PASSPHRASE });
+    await db.saveAccount(account);
+
+    const codes = await db.getLiveCodes(0);
+    expect(codes).toHaveLength(1);
+    expect(codes[0].accountId).toBe(account.id);
+    expect(codes[0].code).toMatch(/^\w{5}$/);
+    expect(JSON.stringify(codes)).not.toContain(account.sharedSecret);
   });
 
   it('keeps the export backup usable while the vault is open', async () => {
@@ -176,8 +217,8 @@ describe('storage: encrypted records', () => {
     (globalThis as any).indexedDB = new IDBFactory();
     const fresh = (await import('./storage')).db;
     await fresh.importFullBackup(JSON.stringify(backup));
-    const [imported] = await fresh.getAccounts();
-    expect(imported.sharedSecret).toBe(account.sharedSecret);
+    const imported = await fresh.getAccountWithSecrets(backup.accounts[0].id);
+    expect(imported?.sharedSecret).toBe(account.sharedSecret);
   });
 
   it('keeps the proxy secret out of localStorage with the vault enabled', async () => {

@@ -342,5 +342,15 @@
   "vault.error.timeout": "Устройство не завершило окно passkey вовремя. Попробуйте снова или используйте резервную парольную фразу.",
   "vault.passkeyNotUsable": "Passkey создан, но это устройство не может использовать его для шифрования хранилища. Сейчас хранилище защищено резервной парольной фразой — ничего не потеряно. Рабочий passkey можно добавить позже, если устройство его поддерживает.",
   "vault.prfUnavailable": "Это устройство уже создавало passkey, но не смогло использовать его для шифрования хранилища, поэтому параметр скрыт. Обновление Windows может это исправить.",
-  "vault.passkeyRetry": "Попробовать снова"
+  "vault.passkeyRetry": "Попробовать снова",
+  "sessionRefresh.title": "Сессия истекла ({{alias}})",
+  "sessionRefresh.desc": "Steam больше не принимает эту сессию. Обновите её здесь, не заходя в настройки аккаунта.",
+  "sessionRefresh.refreshBtn": "Обновить сессию",
+  "sessionRefresh.refreshing": "Обновление...",
+  "sessionRefresh.loginBtn": "Войти по паролю",
+  "sessionRefresh.passwordPlaceholder": "Пароль Steam",
+  "sessionRefresh.success": "Сессия обновлена.",
+  "sessionRefresh.refreshFailed": "Не удалось обновить сессию. Войдите по паролю Steam.",
+  "sessionRefresh.noRefreshToken": "Для этого аккаунта нет сохранённого токена обновления. Войдите по паролю Steam.",
+  "sessionRefresh.loginFailed": "Не удалось войти в Steam. Проверьте пароль."
 }

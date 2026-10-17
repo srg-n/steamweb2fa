@@ -342,5 +342,15 @@
   "vault.error.timeout": "The device did not finish the passkey prompt in time. Try again, or use the recovery passphrase.",
   "vault.passkeyNotUsable": "The passkey was created, but this device cannot use it to encrypt the vault. The vault is now protected by your recovery passphrase instead — nothing is lost. You can add a working passkey later if your device supports it.",
   "vault.prfUnavailable": "This device created a passkey earlier but could not use it to encrypt the vault, so the option is hidden. A Windows update may fix it.",
-  "vault.passkeyRetry": "Try again"
+  "vault.passkeyRetry": "Try again",
+  "sessionRefresh.title": "Session expired ({{alias}})",
+  "sessionRefresh.desc": "Steam no longer accepts this session. Renew it here instead of going into account settings.",
+  "sessionRefresh.refreshBtn": "Renew Session",
+  "sessionRefresh.refreshing": "Renewing...",
+  "sessionRefresh.loginBtn": "Log in with Password",
+  "sessionRefresh.passwordPlaceholder": "Steam password",
+  "sessionRefresh.success": "Session renewed.",
+  "sessionRefresh.refreshFailed": "Could not renew the session. Log in with your Steam password.",
+  "sessionRefresh.noRefreshToken": "No refresh token saved for this account. Log in with your Steam password.",
+  "sessionRefresh.loginFailed": "Steam login failed. Check your password."
 }
