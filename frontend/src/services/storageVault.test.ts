@@ -35,6 +35,7 @@ async function boot() {
 
 describe('storage: encrypted records', () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });

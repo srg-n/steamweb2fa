@@ -605,7 +605,6 @@ class ClientDatabase {
     const updated: AppSettings = { ...current, ...settings };
 
     try {
-      const store = await this.getStore('settings', 'readwrite');
       const { corsProxySecret, ...plain } = updated;
       const record: Record<string, unknown> = { key: 'app_settings', value: plain };
 
@@ -622,7 +621,14 @@ class ClientDatabase {
         }
       }
 
-      store.put(record);
+      // Encryption must finish before the transaction opens: an `await`
+      // between `transaction()` and `put()` closes it (TransactionInactive).
+      const store = await this.getStore('settings', 'readwrite');
+      await new Promise<void>((resolve, reject) => {
+        const req = store.put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
     } catch (err) {
       if (err instanceof VaultLockedError) throw err;
       notifyStorageUnavailable(err);
