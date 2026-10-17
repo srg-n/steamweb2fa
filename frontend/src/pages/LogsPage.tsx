@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, Trash2, Download, RefreshCw, Filter, ShieldCheck, ArrowRightLeft, LogIn, KeyRound } from 'lucide-react';
+import { FileText, Trash2, Download, RefreshCw, ShieldCheck, ArrowRightLeft, LogIn, KeyRound } from 'lucide-react';
 import { logApi } from '../api';
 import type { LocalLogItem } from '../services/storage';
 import { Card } from '../components/ui/Card';

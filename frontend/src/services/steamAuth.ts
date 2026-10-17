@@ -1,7 +1,6 @@
 import { db, type StoredAccount, type AppSettings } from './storage';
 import { applyCorsProxy, formatSteamLoginCookie } from './steamClient';
-import i18n from '../i18n';
-import { generateSteamGuardCode, generateAuthSessionSignature, generateConfirmationKey, getDeviceId, uint8ArrayToBase64 } from './steamCrypto';
+import { generateSteamGuardCode, generateConfirmationKey, getDeviceId, uint8ArrayToBase64 } from './steamCrypto';
 
 function hexToBigInt(hex: string): bigint {
   return BigInt('0x' + hex);
@@ -85,21 +84,6 @@ export interface SteamLoginResult {
   refreshToken?: string;
   sessionid?: string;
   error?: string;
-}
-
-function isJwtExpired(token?: string): boolean {
-  if (!token || token.split('.').length < 2) return true;
-  try {
-    const payloadBase64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const jsonStr = atob(payloadBase64);
-    const payload = JSON.parse(jsonStr);
-    if (typeof payload?.exp === 'number') {
-      return payload.exp * 1000 <= Date.now() + 60000;
-    }
-  } catch {
-    return true;
-  }
-  return false;
 }
 
 export class SteamAuthService {
@@ -539,7 +523,9 @@ export class SteamAuthService {
         try {
           const errData = await updateRes.json();
           errTxt = errData?.message || errData?.error || '';
-        } catch {}
+        } catch {
+          // Non-JSON error body; the status code is logged below.
+        }
         console.warn('UpdateAuthSessionWithSteamGuardCode warning:', updateRes.status, errTxt);
       }
     } catch (uErr) {

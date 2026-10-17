@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Globe, ChevronDown, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
-import { SUPPORTED_LANGUAGES, isSupportedLanguage } from '../i18n';
+import { isSupportedLanguage, type SupportedLanguage } from '../i18n';
 
 type Props = {
   onChange?: (lang: SupportedLanguage) => void;

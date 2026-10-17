@@ -4,7 +4,6 @@ import {
   generateConfirmationKey,
   getDeviceId,
   sha1,
-  hmacSha1,
   uint8ArrayToHex
 } from './steamCrypto';
 import { parseMaFile, exportToMaFile } from './mafileParser';

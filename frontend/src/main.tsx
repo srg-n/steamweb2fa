@@ -15,6 +15,22 @@ const getInitialMemoryPath = () => {
 
 // PWA registration. Disabled on file:// where manifest and service workers
 // are unavailable.
+//
+// Trusted Types is enforced via CSP, and ServiceWorkerContainer.register()
+// only accepts a TrustedScriptURL. The app registers exactly one script, so
+// a single named policy is enough.
+const trustedTypesApi = (globalThis as any).trustedTypes;
+let scriptUrlPolicy: any = null;
+try {
+  if (trustedTypesApi?.createPolicy) {
+    scriptUrlPolicy = trustedTypesApi.createPolicy('steamguard-url', {
+      createScriptURL: (url: string) => url
+    });
+  }
+} catch {
+  // Policy already created or blocked: registration falls back to a raw URL.
+}
+
 if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
   if (!document.querySelector('link[rel="manifest"]')) {
     const link = document.createElement('link');
@@ -26,8 +42,14 @@ if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       const swUrl = new URL('sw.js', document.baseURI).href;
-      navigator.serviceWorker
-        .register(swUrl, { scope: new URL('./', document.baseURI).href })
+      const swScriptUrl = scriptUrlPolicy ? scriptUrlPolicy.createScriptURL(swUrl) : swUrl;
+      // updateViaCache: 'none' keeps the HTTP cache from serving a stale sw.js,
+// which would otherwise freeze the app on an old build.
+navigator.serviceWorker
+        .register(swScriptUrl, {
+          scope: new URL('./', document.baseURI).href,
+          updateViaCache: 'none'
+        })
         .then((registration) => {
           // Pick up a new worker as soon as it is installed instead of waiting
           // for every tab to close.
@@ -47,8 +69,13 @@ if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')
     });
 
     let reloading = false;
+    // A freshly installed worker claims clients (clients.claim()), which also
+    // fires controllerchange. Reloading on that first claim would restart the
+    // app on every page load, so only an actual update of a controlling
+    // worker triggers a reload.
+    const hadController = Boolean(navigator.serviceWorker.controller);
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (reloading) return;
+      if (!hadController || reloading) return;
       reloading = true;
       window.location.reload();
     });

@@ -15,7 +15,7 @@ const i18nMock = vi.hoisted(() => ({
   }),
   on: vi.fn(),
   off: vi.fn(),
-  use: vi.fn(function use() {
+  use: vi.fn(function use(this: unknown) {
     return this;
   }),
   init: vi.fn(),

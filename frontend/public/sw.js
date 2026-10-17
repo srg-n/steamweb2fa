@@ -5,9 +5,12 @@
  * - Offline shell: precache the app so TOTP codes keep working without network.
  * - Never cache Steam or proxy traffic. Those requests are authenticated, time
  *   sensitive and rate limited, so they must always hit the network.
+ *
+ * VERSION is replaced at build time with a hash of index.html, so every
+ * release gets a fresh cache name and older shells are dropped on activate.
  */
 
-const VERSION = 'steamguard-v1';
+const VERSION = 'steamguard-dev';
 const SHELL_CACHE = `${VERSION}-shell`;
 
 // The build inlines everything into index.html, so the shell is a single file

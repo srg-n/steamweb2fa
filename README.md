@@ -155,7 +155,47 @@ Browsers enforce CORS policies that restrict client-side scripts from reading re
 
 - **Zero External Server Transmission:** Your Steam secrets, `shared_secret`, `identity_secret`, passwords, and session cookies are **never** transmitted to any third-party backend.
 - **Isolated Browser Storage:** All data is persisted in your local browser sandbox via `IndexedDB`. No other website or tab can access it.
+- **No Plain-Text Fallback:** Accounts (which contain your Steam secrets) live **only** in IndexedDB. Older versions mirrored them into `localStorage` as plain text; those copies are now deleted automatically on startup. If IndexedDB is unavailable (private windows, blocked storage), the app shows a warning and refuses to persist secrets instead of silently downgrading. Only non-sensitive data (folders, tags, logs, UI settings) keeps a `localStorage` mirror.
+- **Encrypted Vault:** Your Steam secrets can be encrypted with AES-GCM. Each value gets its own random one-time code, and the encryption also stamps the account id and field name into the data, so an encrypted value copied from one account into another no longer opens. One randomly generated key encrypts everything and is never written to disk: only locked copies of it are stored, and the key comes either from a **passkey on your device (WebAuthn PRF)** — which never exposes the key to the app's JavaScript — or from a **recovery passphrase** you type yourself (stretched with PBKDF2-SHA-256, 600,000 rounds). The vault locks itself after a period of inactivity and immediately when you switch to another tab. Turning it on re-encrypts the accounts you already added. You can start it under **Settings → Encrypted Vault**.
+- **Content Security Policy:** The production build ships a strict policy: the only scripts allowed to run are the exact copies inlined into the page, matched by their SHA-256 fingerprint. No `'unsafe-inline'`, no `'unsafe-eval'`, plus `object-src 'none'`, `base-uri 'none'`, `form-action 'none'` and a tight `connect-src`.
+- **Trusted Types:** `require-trusted-types-for 'script'` is enabled, so an injected DOM node cannot be turned into executable script or a script URL. The only allowed policy is `steamguard-url`, used for the service worker URL.
 - **Direct Communication:** The app communicates solely with official Valve endpoints (`api.steampowered.com`, `steamcommunity.com`, `login.steampowered.com`) and your personal Cloudflare Worker.
+
+#### Hardening knobs
+
+| Knob | How |
+|---|---|
+| Restrict network access | Build with `CSP_CONNECT_ORIGINS="https://proxy.yoursite.com"` and the app is only allowed to reach that address. Without this value any HTTPS address is allowed, so a self-hosted CORS proxy keeps working. |
+| Server headers | `frontend/public/_headers` is applied automatically by Cloudflare Pages and Netlify; copy the same headers into other hosts manually. |
+| CSP check | `pnpm build` fails if one of the bundled scripts is not on the allow list or if a Steam address is missing from it. |
+
+If you host the app yourself, add these **HTTP headers** (a `<meta>` CSP cannot set them):
+
+```
+Content-Security-Policy: frame-ancestors 'none'
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+```
+
+These are already bundled in `frontend/public/_headers`; the snippet is here for other hosts.
+
+> **Backup files contain decrypted secrets by design.** A JSON export is your portable
+> copy (.maFile style). It is also the only recovery path if you lose both the passkey and
+> the recovery passphrase, so treat that file like a password file.
+
+> **Passkey not working? Two usual causes.**
+>
+> 1. **Where the passkey was saved.** Chrome's own profile does not support the PRF
+>    extension. When Chrome asks where to keep the passkey, pick Google Password
+>    Manager (or 1Password / Bitwarden) instead.
+> 2. **Operating system age.** On Windows, Windows Hello only returns a PRF key after
+>    the February 2026 update on Windows 11 24H2 / 25H2, and Chrome/Edge needs 147+
+>    (Firefox 148+). macOS 15+ and Android work through iCloud Keychain / Google
+>    Password Manager.
+>
+> Neither blocks the vault: the recovery passphrase gives the same protection, and a
+> passkey can be added later under Settings.
 
 ---
 
@@ -265,8 +305,46 @@ Tarayıcıların güvenlik politikaları (CORS) gereği, web sitelerinin Steam C
 
 - **Sıfır Sunucu İletimi:** Steam hesap bilgileriniz, `shared_secret`, `identity_secret`, şifreleriniz ve oturum çerezleriniz **asla** harici bir sunucuya iletilmez.
 - **Yerel Tarayıcı İzolasyonu:** Tüm hesap ve oturum verileri tarayıcınızın güvenli yerel deposu olan `IndexedDB` içinde barınır. Başka bir sekme veya kullanıcı bu verilere erişemez.
+- **Düz Metin Yedek Yok:** Steam sırlarını içeren hesaplar **yalnızca** IndexedDB'de tutulur. Eski sürümler bu verileri `localStorage` içine düz metin olarak kopyalıyordu; bu kopyalar artık uygulama açılışında otomatik silinir. IndexedDB kullanılamıyorsa (gizli sekme, engellenmiş depolama) uygulama bir uyarı gösterir ve sırları sessizce düz metne düşürmek yerine kaydetmez. Yalnızca hassas olmayan veriler (klasörler, etiketler, kayıtlar, arayüz ayarları) `localStorage` aynasını korur.
+- **Şifreli Kasa:** Steam sırlarınız AES-GCM ile şifreleyebilirsiniz. Her değer kendine özel tek kullanımlık bir kodla şifrelenir ve şifreleme sırasında hesap kimliği ile alan adı da verinin içine yazılır; böylece bir hesaptan alınan şifreli veri başka bir hesaba kopyalansa bile açılmaz. Her şeyi rastgele üretilmiş tek bir anahtar şifreler ve bu anahtar hiçbir zaman diske yazılmaz: yalnızca kilitli kopyaları saklanır. Anahtar ya **cihazınızdaki bir passkey'den** (WebAuthn PRF — bu durumda anahtar uygulamanın JavaScript'ine hiç bırakılmaz) ya da sizin belirlediğiniz **bir kurtarma parolasından** gelir (PBKDF2-SHA-256 ile 600.000 turdan geçirilerek zorla kırılması zorlaştırılır). Kasa, bir süre hareketsiz kaldığınızda ve başka sekmeye geçtiğiniz anda kendini kilitler. Kasa'yı açtığınızda daha önce eklediğiniz hesaplar da yeniden şifrelenir. **Ayarlar → Şifreli Kasa** bölümünden başlatabilirsiniz.
+- **Content Security Policy:** Üretim sürümü katı bir güvenlik politikasıyla çalışır: çalışmasına izin verilen scriptler yalnızca sayfaya gömülü o olanlardır ve SHA-256 parmak izleriyle eşleştirilir. Ne `'unsafe-inline'` ne `'unsafe-eval'` kullanılır; ayrıca `object-src 'none'`, `base-uri 'none'`, `form-action 'none'` ve sıkı bir `connect-src` uygulanır.
+- **Trusted Types:** `require-trusted-types-for 'script'` etkindir; enjekte edilmiş bir DOM düğümü çalıştırılabilir script'e veya script URL'sine dönüştürülemez. Tek izin verilen politika, servis worker URL'si için kullanılan `steamguard-url` politikasıdır.
 - **Doğrudan İletişim:** Uygulama yalnızca resmi Steam sunucuları (`api.steampowered.com`, `steamcommunity.com`, `login.steampowered.com`) ve sizin kurduğunuz kişisel Cloudflare Worker ile haberleşir.
 - **Git Koruma Kuralları:** `.gitignore` dosyası `.maFile`, `.env` ve kişisel veri kalıntılarını engelleyecek şekilde yapılandırılmıştır.
+
+Kendi sunucunuzda barındırıyorsanız şu **HTTP başlıklarını** da ekleyin (`<meta>` CSP ile ayarlanamazlar):
+
+```
+Content-Security-Policy: frame-ancestors 'none'
+Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+```
+
+Bu başlıklar `frontend/public/_headers` dosyasında hazır gelir; Cloudflare Pages ve Netlify bunları otomatik uygular, GitHub Pages başlık gönderemediği için derleme ayrıca CSP `<meta>` etiketi gömer.
+
+#### Sıkılaştırma ayarları
+
+| Ayar | Nasıl |
+|---|---|
+| Ağ iznini daraltma | Derlerken `CSP_CONNECT_ORIGINS="https://proxy.sizinsite.com"` yazarsanız uygulama sadece bu adrese bağlanabilir. Bu değeri yazmazsanız kendi CORS proxy'niz çalışabilsin diye tüm HTTPS adreslerine izin verilir. |
+| Sunucu başlıkları | `frontend/public/_headers` dosyası. Cloudflare Pages ve Netlify bunu otomatik uygular; başka sunucularda aynı başlıkları elle ekleyebilirsiniz. |
+| CSP kontrolü | `pnpm build` çalıştırınca, uygulamanın gömülü script'lerinden biri izin listesinde yoksa ya da Steam adreslerinden biri eksikse derleme hata verir. |
+
+> **Yedek dosyaları bilerek şifresizdir.** JSON dışa aktarım sizin taşınabilir kopyanızdır (.maFile mantığı) ve passkey ile kurtarma parolasını ikisini birden kaybederseniz kurtarma yolunuzdur. Bu dosyayı bir parola dosyası gibi saklayın.
+
+> **Passkey çalışmıyorsa: iki olası sebep.**
+>
+> 1. **Passkey nereye kaydedildi?** Chrome'un kendi profili bu özelliği
+>    desteklemez. Chrome "passkey nereye kaydedilsin?" diye sorduğunda Google
+>    Password Manager (ya da 1Password / Bitwarden) seçin.
+> 2. **İşletim sistemi çok eski.** Windows'ta Windows Hello yalnızca Windows 11
+>    24H2 / 25H2 üzerinde Şubat 2026 güncellemesinden sonra bu anahtarı
+>    verebiliyor; Chrome/Edge 147+ (Firefox 148+) gerekiyor. macOS 15+ ve
+>    Android'de iCloud Keychain / Google Password Manager ile çalışıyor.
+>
+> Bunların hiçbiri kasayı engellemez: kurtarma parolası aynı korumayı sağlar ve
+> passkey'i sonra Ayarlar bölümünden ekleyebilirsiniz.
 
 ---
 

@@ -19,11 +19,32 @@ import {
 } from 'lucide-react';
 import { settingsApi } from '../api';
 import { isSupportedLanguage, type SupportedLanguage } from '../i18n';
-import type { AppSettings } from '../services/storage';
+import { db, type AppSettings } from '../services/storage';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { applyCorsProxy } from '../services/steamClient';
+import { detectPrfSupport, type PrfSupport } from '../services/prfVault';
+import { describeVaultError } from '../services/vaultErrors';
+import {
+  addPassphrase,
+  changePassphrase,
+  clearPrfUnavailable,
+  disableVault,
+  enableVault,
+  getVaultConfig,
+  getVaultStatus,
+  hasPasskey,
+  hasPassphrase,
+  isPrfKnownUnavailable,
+  lockVault,
+  onVaultChange,
+  removePassphrase,
+  setAutoLock,
+  type VaultStatus
+} from '../services/vault';
+
+const AUTO_LOCK_OPTIONS = [60, 300, 900, 3600];
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -36,6 +57,41 @@ export function SettingsPage() {
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Vault state
+  const [vaultStatus, setVaultStatus] = useState<VaultStatus>(() => getVaultStatus());
+  const [vaultBusy, setVaultBusy] = useState(false);
+  const [prfSupport, setPrfSupport] = useState<PrfSupport | null>(null);
+  const [prfUnavailable, setPrfUnavailable] = useState(() => isPrfKnownUnavailable());
+  const [usePasskey, setUsePasskey] = useState(false);
+  const [usePassphrase, setUsePassphrase] = useState(true);
+  const [passphrase, setPassphrase] = useState('');
+  const [currentPassphrase, setCurrentPassphrase] = useState('');
+  const [nextPassphrase, setNextPassphrase] = useState('');
+
+  const vaultConfig = getVaultConfig();
+  const vaultEnabled = vaultStatus !== 'disabled';
+  const passkeySet = hasPasskey();
+  const passphraseSet = hasPassphrase();
+
+  // Only offer the passkey once the device really advertises PRF support, so
+  // the user is not pushed into an authenticator prompt that must fail. A
+  // device that already refused once is not asked again until they retry.
+  useEffect(() => {
+    let cancelled = false;
+    void detectPrfSupport().then((support) => {
+      if (cancelled) return;
+      setPrfSupport(support);
+      if (support.usable) setUsePasskey(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => onVaultChange(setVaultStatus), []);
+
+  const passkeyPossible = Boolean(prfSupport?.usable) && !prfUnavailable;
 
   useEffect(() => {
     settingsApi.get().then(setSettings);
@@ -224,11 +280,108 @@ export function SettingsPage() {
     if (!window.confirm(t('settings.wipeConfirm'))) {
       return;
     }
+    setMessage(null);
+    // The key must be forgotten before the encrypted records disappear.
+    lockVault();
     localStorage.clear();
-    if (typeof indexedDB !== 'undefined') {
-      indexedDB.deleteDatabase('SteamWebAuthDB');
+    try {
+      await db.wipeAll();
+    } catch (err) {
+      // Fall back to dropping the whole database if clearing is impossible.
+      console.warn('Could not clear the database, deleting it instead:', err);
+      if (typeof indexedDB !== 'undefined') {
+        indexedDB.deleteDatabase('SteamWebAuthDB');
+      }
     }
     window.location.reload();
+  };
+
+  // ---------------- Vault ----------------
+
+  type VaultFeedback = { textKey: string; type: 'success' | 'error' };
+
+  /**
+   * Runs a vault action and shows exactly one message. `feedback` may be a
+   * function so a caller can pick the wording *after* the action ran (for
+   * example "enabled, but the passkey turned out to be unusable") without the
+   * user seeing two banners in a row.
+   */
+  const runVault = async (
+    action: () => unknown,
+    feedback: string | (() => VaultFeedback | null)
+  ) => {
+    setVaultBusy(true);
+    setMessage(null);
+    try {
+      await action();
+      const resolved =
+        typeof feedback === 'function' ? feedback() : { textKey: feedback, type: 'success' as const };
+      if (resolved) {
+        setMessage({ text: t(resolved.textKey), type: resolved.type });
+        setTimeout(() => setMessage(null), 4000);
+      }
+    } catch (err: any) {
+      // Translated explanation instead of a raw crypto-layer string.
+      setMessage({ text: describeVaultError(err, (key) => t(key), t('vault.failed')), type: 'error' });
+      // A passkey that cannot be created must not leave the form unusable.
+      if (err?.code === 'prf_unsupported' || err?.code === 'platform_authenticator_missing') {
+        setUsePasskey(false);
+        setUsePassphrase(true);
+        void detectPrfSupport().then(setPrfSupport);
+      }
+    } finally {
+      setVaultBusy(false);
+    }
+  };
+
+  const handleEnableVault = () => {
+    const wantedPasskey = usePasskey;
+    return runVault(async () => {
+      await enableVault({
+        usePasskey,
+        usePassphrase,
+        passphrase: usePassphrase ? passphrase : undefined
+      });
+      await db.migrateToVault();
+      setPassphrase('');
+    }, () => {
+      // The passkey may have been created yet still unable to derive keys.
+      // Say so instead of leaving the user to wonder where the option went.
+      if (wantedPasskey && !getVaultConfig()?.prf) {
+        return { textKey: 'vault.passkeyNotUsable', type: 'error' };
+      }
+      return { textKey: 'vault.enabled', type: 'success' };
+    });
+  };
+
+  const handleDisableVault = () => {
+    if (!window.confirm(t('vault.disableConfirm'))) return;
+    return runVault(async () => {
+      // Records must be rewritten in plain text before the key is discarded.
+      await db.migrateToPlaintext();
+      await disableVault();
+    }, 'vault.disabled');
+  };
+
+  const handleAddPassphrase = () =>
+    runVault(async () => {
+      await addPassphrase(passphrase);
+      setPassphrase('');
+    }, 'vault.passphraseAdded');
+
+  const handleChangePassphrase = () =>
+    runVault(async () => {
+      await changePassphrase(currentPassphrase, nextPassphrase);
+      setCurrentPassphrase('');
+      setNextPassphrase('');
+    }, 'vault.passphraseChanged');
+
+  const handleRemovePassphrase = () => {
+    if (!window.confirm(t('vault.removePassphraseConfirm'))) return;
+    return runVault(async () => {
+      await removePassphrase(currentPassphrase);
+      setCurrentPassphrase('');
+    }, 'vault.passphraseRemoved');
   };
 
   return (
@@ -561,7 +714,208 @@ export function SettingsPage() {
         </div>
       </Card>
 
-      {/* 5. PWA Install */}
+      {/* 5. Vault */}
+      <Card className="p-5">
+        <h3 className="font-bold text-sm flex items-center gap-1.5">
+          <ShieldCheck size={16} className="text-accent-500" />
+          {t('vault.title')}
+        </h3>
+        <p className="mt-1 text-xs text-base-500 leading-relaxed">{t('vault.description')}</p>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 border ${
+              vaultEnabled
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                : 'border-base-200 bg-base-100 text-base-500'
+            }`}
+          >
+            {vaultEnabled ? t('vault.statusEnabled') : t('vault.statusDisabled')}
+          </span>
+          {passkeySet && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-base-200 px-2.5 py-1 text-base-500">
+              {t('vault.methodPasskey')}
+            </span>
+          )}
+          {passphraseSet && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-base-200 px-2.5 py-1 text-base-500">
+              {t('vault.methodPassphrase')}
+            </span>
+          )}
+        </div>
+
+        {!vaultEnabled ? (
+          <div className="mt-4 space-y-3">
+            {passkeyPossible && (
+              <label className="flex items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={usePasskey}
+                  onChange={(e) => setUsePasskey(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-semibold">{t('vault.usePasskey')}</span>
+                  <span className="block text-base-500">{t('vault.usePasskeyDesc')}</span>
+                </span>
+              </label>
+            )}
+
+            {prfUnavailable && (
+              <div className="flex items-start justify-between gap-3 text-xs text-base-500">
+                <span>{t('vault.prfUnavailable')}</span>
+                <button
+                  type="button"
+                  className="shrink-0 font-semibold text-accent-500 hover:underline"
+                  onClick={() => {
+                    clearPrfUnavailable();
+                    setPrfUnavailable(false);
+                  }}
+                >
+                  {t('vault.passkeyRetry')}
+                </button>
+              </div>
+            )}
+
+            {!passkeyPossible && !prfUnavailable && prfSupport && !prfSupport.usable && (
+              <p className="text-xs text-base-500">
+                {describeVaultError({ code: prfSupport.reason }, (key) => t(key), t('vault.usePassphraseDesc'))}
+              </p>
+            )}
+
+            <label className="flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={usePassphrase}
+                onChange={(e) => setUsePassphrase(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-semibold">{t('vault.usePassphrase')}</span>
+                <span className="block text-base-500">{t('vault.usePassphraseDesc')}</span>
+              </span>
+            </label>
+
+            {usePassphrase && (
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={passphrase}
+                placeholder={t('vault.passphrasePlaceholder')}
+                onChange={(e) => setPassphrase(e.target.value)}
+              />
+            )}
+
+            <Button
+              variant="primary"
+              className="gap-1.5 text-xs h-9 px-4"
+              disabled={vaultBusy || (usePassphrase && passphrase.length < 8) || (!usePasskey && !usePassphrase)}
+              onClick={handleEnableVault}
+            >
+              {t('vault.enable')}
+            </Button>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-xs text-base-500">
+                {t('vault.autoLock')}
+                <select
+                  value={vaultConfig?.autoLockSec ?? 300}
+                  onChange={(e) => void setAutoLock(Number(e.target.value))}
+                  className="rounded-lg border border-base-200 bg-base-100 px-2 py-1 text-xs dark:border-base-800 dark:bg-[#121218]"
+                >
+                  {AUTO_LOCK_OPTIONS.map((sec) => (
+                    <option key={sec} value={sec}>
+                      {t(`vault.autoLock.${sec}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <Button
+                variant="secondary"
+                className="gap-1.5 text-xs h-9 px-4"
+                onClick={() => lockVault()}
+              >
+                {t('vault.lockNow')}
+              </Button>
+
+              <Button
+                variant="danger"
+                className="gap-1.5 text-xs h-9 px-4"
+                disabled={vaultBusy}
+                onClick={handleDisableVault}
+              >
+                {t('vault.disable')}
+              </Button>
+            </div>
+
+            {!passphraseSet && (
+              <div className="space-y-2">
+                <p className="text-xs text-base-500">{t('vault.recoveryMissing')}</p>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={passphrase}
+                  placeholder={t('vault.passphrasePlaceholder')}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                />
+                <Button
+                  variant="secondary"
+                  className="gap-1.5 text-xs h-9 px-4"
+                  disabled={vaultBusy || passphrase.length < 8}
+                  onClick={handleAddPassphrase}
+                >
+                  {t('vault.addPassphrase')}
+                </Button>
+              </div>
+            )}
+
+            {passphraseSet && (
+              <div className="space-y-2">
+                <p className="text-xs text-base-500">{t('vault.changePassphrase')}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    type="password"
+                    autoComplete="current-password"
+                    className="max-w-[220px]"
+                    value={currentPassphrase}
+                    placeholder={t('vault.currentPassphrase')}
+                    onChange={(e) => setCurrentPassphrase(e.target.value)}
+                  />
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    className="max-w-[220px]"
+                    value={nextPassphrase}
+                    placeholder={t('vault.newPassphrase')}
+                    onChange={(e) => setNextPassphrase(e.target.value)}
+                  />
+                  <Button
+                    variant="secondary"
+                    className="gap-1.5 text-xs h-9 px-4"
+                    disabled={vaultBusy || !currentPassphrase || nextPassphrase.length < 8}
+                    onClick={handleChangePassphrase}
+                  >
+                    {t('vault.save')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="gap-1.5 text-xs h-9 px-4"
+                    disabled={vaultBusy || !currentPassphrase || !passkeySet}
+                    onClick={handleRemovePassphrase}
+                  >
+                    {t('vault.removePassphrase')}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* 6. PWA Install */}
       {installPrompt && (
         <Card className="p-5 flex items-center justify-between gap-4 border-accent-500/40 bg-accent-500/5">
           <div>

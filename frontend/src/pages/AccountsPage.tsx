@@ -11,12 +11,7 @@ import {
   Check,
   Copy,
   Clock,
-  ExternalLink,
   ShieldCheck,
-  Folder,
-  Tag,
-  Inbox,
-  FileCode,
   FileUp,
   SlidersHorizontal,
   X
@@ -26,7 +21,6 @@ import type { StoredAccount, FolderItem, TagItem } from '../services/storage';
 import { generateSteamGuardCode } from '../services/steamCrypto';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Badge } from '../components/ui/Badge';
 import { Input } from '../components/ui/Input';
 
 export function AccountsPage() {
@@ -163,14 +157,12 @@ export function AccountsPage() {
     setImportBusy(true);
     setImportError(null);
 
-    let importedCount = 0;
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const text = await file.text();
         const fallbackAlias = file.name.replace(/\.mafile$/i, '').replace(/\.json$/i, '');
         await processMaFileContent(text, fallbackAlias);
-        importedCount++;
       }
 
       await loadData();

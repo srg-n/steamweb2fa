@@ -9,22 +9,31 @@ import {
   Settings as SettingsIcon,
   Download,
   Wifi,
-  Clock
+  Clock,
+  AlertTriangle
 } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { Button } from '../components/ui/Button';
 import { InstallModal } from '../components/InstallModal';
 import { settingsApi, steamApi } from '../api';
+import { STORAGE_UNAVAILABLE_EVENT } from '../services/storage';
 
 export function AppLayout() {
   const { t, i18n } = useTranslation();
   const [pendingCount, setPendingCount] = useState<number>(0);
-  const [lang, setLang] = useState<string>(i18n.resolvedLanguage || i18n.language);
   const [timeOffset, setTimeOffset] = useState<number>(0);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [canInstall, setCanInstall] = useState(false);
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [storageUnavailable, setStorageUnavailable] = useState(false);
+
+  // The vault holds Steam secrets, so it never degrades to localStorage.
+  // Warn loudly instead of silently losing accounts.
+  useEffect(() => {
+    const onUnavailable = () => setStorageUnavailable(true);
+    window.addEventListener(STORAGE_UNAVAILABLE_EVENT, onUnavailable);
+    return () => window.removeEventListener(STORAGE_UNAVAILABLE_EVENT, onUnavailable);
+  }, []);
 
   // Check pending confirmations count periodically
   useEffect(() => {
@@ -45,15 +54,6 @@ export function AppLayout() {
       clearInterval(interval);
     };
   }, []);
-
-  // Track language changes so useMemo labels below recompute.
-  useEffect(() => {
-    const onChanged = (next: string) => setLang(next);
-    i18n.on('languageChanged', onChanged);
-    return () => {
-      i18n.off('languageChanged', onChanged);
-    };
-  }, [i18n]);
 
   // Fetch initial settings & time offset. Stored settings are the source of
   // truth for the language, overriding whatever the detector picked.
@@ -86,7 +86,6 @@ export function AppLayout() {
     const handleBeforeInstall = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setCanInstall(true);
 
       const dismissedUntil = Number(localStorage.getItem('steamweb_pwa_dismissed_until') || '0');
       if (Date.now() > dismissedUntil) {
@@ -128,7 +127,7 @@ export function AppLayout() {
       { to: '/logs', label: t('nav.logs'), icon: FileText },
       { to: '/settings', label: t('nav.settings'), icon: SettingsIcon }
     ],
-    [t, lang, pendingCount]
+    [t, pendingCount]
   );
 
   return (
@@ -210,6 +209,15 @@ export function AppLayout() {
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col min-w-0 pb-24 md:pb-8 w-full max-w-full">
+        {storageUnavailable && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 border-b border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger sm:px-4"
+          >
+            <AlertTriangle size={15} className="mt-0.5 flex-shrink-0" />
+            <span>{t('layout.storageUnavailable')}</span>
+          </div>
+        )}
         {/* Top Header */}
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-base-200/80 bg-white/80 px-3 sm:px-4 py-2.5 sm:py-3 backdrop-blur dark:border-base-800/80 dark:bg-black/90 w-full max-w-full">
           <div className="flex items-center gap-2 min-w-0 flex-shrink">
@@ -306,7 +314,6 @@ export function AppLayout() {
         onClose={() => setShowInstallModal(false)}
         deferredPrompt={deferredPrompt}
         onInstalled={() => {
-          setCanInstall(false);
           setDeferredPrompt(null);
         }}
       />

@@ -206,11 +206,15 @@ export function ConfirmationsPage() {
     });
   };
 
-  // Auto-confirm effect
+  // Auto-confirm effect.
+  // handleBatch is intentionally omitted: it is recreated on every render, so
+  // depending on it would re-trigger auto-confirm continuously. The listed
+  // state guards (batchBusy/loading/confirmations.length) are what gate it.
   useEffect(() => {
     if (autoConfirmEnabled && confirmations.length > 0 && !batchBusy && !loading) {
       handleBatch(true, true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoConfirmEnabled, confirmations.length, batchBusy, loading]);
 
   const missingSessionAccounts = useMemo(() => {

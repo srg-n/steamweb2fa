@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import type { HTMLAttributes } from 'react';
 
-type BadgeVariant = 'default' | 'success' | 'warning' | 'danger';
+type BadgeVariant = 'primary' | 'default' | 'success' | 'warning' | 'danger';
 
 export function Badge({
   className,
@@ -13,6 +13,7 @@ export function Badge({
       className={clsx(
         'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold',
         {
+          'bg-accent-500 text-black': variant === 'primary',
           'bg-base-200 text-base-800 dark:bg-base-700 dark:text-base-100': variant === 'default',
           'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300': variant === 'success',
           'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300': variant === 'warning',

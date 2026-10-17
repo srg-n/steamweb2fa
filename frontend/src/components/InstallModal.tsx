@@ -5,8 +5,6 @@ import {
   X,
   Smartphone,
   Share,
-  MoreVertical,
-  PlusSquare,
   CheckCircle2,
   Sparkles,
   ShieldCheck

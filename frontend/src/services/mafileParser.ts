@@ -43,7 +43,7 @@ export function parseMaFile(raw: string, defaultAlias?: string): StoredAccount {
   let parsed: ParsedMaFile;
   try {
     parsed = JSON.parse(raw.trim());
-  } catch (err) {
+  } catch {
     throw new Error('Invalid JSON format: Could not parse .maFile');
   }
 

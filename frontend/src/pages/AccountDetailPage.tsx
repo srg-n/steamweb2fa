@@ -2,19 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  KeyRound,
   Download,
   Trash2,
   Check,
-  Copy,
   Clock,
-  ShieldAlert,
   ArrowLeft,
   RefreshCw,
   Eye,
   EyeOff,
-  Folder,
-  Tag,
   Save,
   CheckCircle2,
   XCircle,
@@ -23,7 +18,7 @@ import {
   LogIn
 } from 'lucide-react';
 import { accountApi, accountOrganizationApi, steamApi, settingsApi } from '../api';
-import type { StoredAccount, FolderItem, TagItem } from '../services/storage';
+import type { StoredAccount, FolderItem } from '../services/storage';
 import type { ConfirmationItem } from '../services/steamClient';
 import { generateSteamGuardCode } from '../services/steamCrypto';
 import { steamAuth } from '../services/steamAuth';
@@ -40,7 +35,6 @@ export function AccountDetailPage() {
 
   const [account, setAccount] = useState<StoredAccount | null>(null);
   const [folders, setFolders] = useState<FolderItem[]>([]);
-  const [tags, setTags] = useState<TagItem[]>([]);
   const [confirmations, setConfirmations] = useState<ConfirmationItem[]>([]);
   const [confirmationsBusy, setConfirmationsBusy] = useState(false);
 
@@ -90,7 +84,6 @@ export function AccountDetailPage() {
     setAccount(acc);
     setAlias(acc.alias);
     setFolders(orgRes.folders);
-    setTags(orgRes.tags);
     setSelectedFolderId(acc.folderId || 'none');
     setSelectedTagNames(acc.tags || []);
     setTimeOffset(setRes.timeOffsetSec || 0);
