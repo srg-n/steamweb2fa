@@ -20,7 +20,10 @@ const account = {
 
 type StorageModule = typeof import('./storage');
 
-async function loadStorage(): Promise<StorageModule> {
+async function loadStorage(fresh = false): Promise<StorageModule> {
+  // A fresh module instance re-runs the startup cleanup, which is what the
+  // legacy-plaintext test needs to observe.
+  if (fresh) vi.resetModules();
   return import('./storage');
 }
 
@@ -65,5 +68,29 @@ describe('storage: secrets never fall back to localStorage', () => {
     // The returned settings still carry it in memory for the current session.
     const current = await db.getSettings();
     expect(current.corsProxyUrl).toBe('https://proxy.example.dev');
+  });
+
+  it('deletes legacy plain-text copies even when IndexedDB is unavailable', async () => {
+    // Pre-upgrade leftovers: accounts with Steam secrets plus the proxy secret.
+    localStorage.setItem(
+      'sw_accounts',
+      JSON.stringify([{ id: 'a1', sharedSecret: 'c2hhYXJlc2VjcmV0', identitySecret: 'aWQ=' }])
+    );
+    localStorage.setItem(
+      'sw_settings',
+      JSON.stringify({ theme: 'dark', corsProxyUrl: 'https://p.dev', corsProxySecret: 'legacy-secret' })
+    );
+
+    const { db } = await loadStorage(true);
+
+    // jsdom has no IndexedDB, so the purge must still have run on load.
+    expect(localStorage.getItem('sw_accounts')).toBeNull();
+    const settings = localStorage.getItem('sw_settings');
+    expect(settings || '').not.toContain('legacy-secret');
+    expect(settings || '').toContain('https://p.dev');
+
+    // And the vault really is unusable here, which is the scenario the purge
+    // has to survive.
+    await expect(db.getAccounts()).resolves.toEqual([]);
   });
 });

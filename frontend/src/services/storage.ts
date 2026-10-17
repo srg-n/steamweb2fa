@@ -129,6 +129,7 @@ class ClientDatabase {
 
     this.dbPromise = new Promise((resolve, reject) => {
       if (typeof indexedDB === 'undefined') {
+        this.purgeLegacyPlaintext();
         reject(new Error('IndexedDB is not supported on this device/browser'));
         return;
       }
@@ -167,9 +168,20 @@ class ClientDatabase {
         this.purgeLegacyPlaintext();
         resolve(request.result);
       };
-      request.onerror = () => reject(request.error);
-      request.onblocked = () =>
+      request.onsuccess = () => {
+        this.purgeLegacyPlaintext();
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        // The legacy copies are plain text on disk regardless of whether the
+        // database opens, so they must go even when the vault is unreachable.
+        this.purgeLegacyPlaintext();
+        reject(request.error);
+      };
+      request.onblocked = () => {
+        this.purgeLegacyPlaintext();
         reject(new StorageUnavailableError('Secure storage is blocked by another open tab.'));
+      };
     });
 
     return this.dbPromise;
@@ -181,6 +193,11 @@ class ClientDatabase {
    * copies are removed once, on open. IndexedDB stays the only source of truth.
    */
   private purgeLegacyPlaintext(): void {
+    this.purgeLegacyPlaintextOnLoad();
+  }
+
+  /** Removes plain-text leftovers from older builds. Safe to call repeatedly. */
+  purgeLegacyPlaintextOnLoad(): void {
     try {
       localStorage.removeItem('sw_accounts');
 
@@ -888,6 +905,14 @@ onVaultChange((status) => {
   if (status !== 'unlocked') return;
   void db.migrateToVault().catch((err) => console.warn('Vault migration deferred:', err));
 });
+
+// Belt and braces: strip any plain-text leftovers from older builds as soon as
+// the module loads, without waiting for the database.
+try {
+  db.purgeLegacyPlaintextOnLoad();
+} catch (err) {
+  console.warn('Legacy plain-text cleanup failed:', err);
+}
 
 // A blocked database (for example a pending delete after "wipe all data") never
 // settles, so the read is time-boxed: the UI must not wait forever.
