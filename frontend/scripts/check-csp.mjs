@@ -13,7 +13,7 @@ if (!meta) {
 const csp = meta[1].replace(/&quot;/g, '"');
 console.log('CSP:\n' + csp + '\n');
 
-const scriptRe = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+const scriptRe = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
 let match;
 let matched = 0;
 let unmatched = 0;
