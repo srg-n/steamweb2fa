@@ -109,7 +109,7 @@ function inlineSingleHtmlPlugin() {
 function injectCspPlugin(extraConnectOrigins: string) {
   const cspFor = (html: string): string => {
     const hashes: string[] = [];
-    const scriptRe = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+    const scriptRe = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
     let match: RegExpExecArray | null;
     while ((match = scriptRe.exec(html)) !== null) {
       const attrs = match[1] || '';
