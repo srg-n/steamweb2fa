@@ -6,6 +6,23 @@ function hexToBigInt(hex: string): bigint {
   return BigInt('0x' + hex);
 }
 
+function containsHost(detail: string, allowedHosts: readonly string[]): boolean {
+  const normalizedAllowed = new Set(allowedHosts.map((h) => h.toLowerCase()));
+  const candidates = detail.split(/\s+/).map((s) => s.trim());
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const hostname = new URL(candidate).hostname.toLowerCase();
+      if (normalizedAllowed.has(hostname)) return true;
+    } catch {
+      // Ignore non-URL tokens.
+    }
+  }
+
+  return false;
+}
+
 function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
   let res = 1n;
   base = base % mod;
@@ -175,7 +192,7 @@ export class SteamAuthService {
 
     if (!res.ok || data?.error) {
       const errDetail = data?.error || data?.message || '';
-      if (errDetail.includes('Forbidden host') || errDetail.includes('login.steampowered.com')) {
+      if (errDetail.includes('Forbidden host') || containsHost(errDetail, ['login.steampowered.com'])) {
         throw new Error('Cloudflare Worker güncel değil! Lütfen cloudflare-worker/worker.js dosyasındaki yeni kodu Cloudflare panelinize yapıştırıp "Save and Deploy" yapın.');
       }
       throw new Error(`Steam oturumu HTTP ${res.status}${errDetail ? `: ${errDetail}` : ''}`);
