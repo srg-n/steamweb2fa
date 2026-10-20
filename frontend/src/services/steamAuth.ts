@@ -23,6 +23,15 @@ function containsHost(detail: string, allowedHosts: readonly string[]): boolean 
   return false;
 }
 
+function isSteamCommunityUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'steamcommunity.com' || hostname.endsWith('.steamcommunity.com');
+  } catch {
+    return false;
+  }
+}
+
 function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
   let res = 1n;
   base = base % mod;
@@ -210,7 +219,7 @@ export class SteamAuthService {
     for (const transfer of data.transfer_info) {
       if (!transfer?.url || !transfer?.params) continue;
 
-      const isCommunity = String(transfer.url).includes('steamcommunity.com');
+      const isCommunity = isSteamCommunityUrl(String(transfer.url));
       const ATTEMPT_COUNT = 5;
 
       for (let attempt = 0; attempt < ATTEMPT_COUNT; attempt++) {
