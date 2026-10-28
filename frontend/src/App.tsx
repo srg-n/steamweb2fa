@@ -6,11 +6,13 @@ import { ConfirmationsPage } from './pages/ConfirmationsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LogsPage } from './pages/LogsPage';
 import { VaultLockGate } from './components/VaultLockGate';
+import { ConfirmDialogProvider } from './components/ui/ConfirmDialog';
 
 export default function App() {
   return (
     <VaultLockGate>
-      <Routes>
+      <ConfirmDialogProvider>
+        <Routes>
         <Route element={<AppLayout />}>
           <Route path="/accounts" element={<AccountsPage />} />
           <Route path="/accounts/:id" element={<AccountDetailPage />} />
@@ -22,6 +24,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/accounts" replace />} />
         <Route path="*" element={<Navigate to="/accounts" replace />} />
       </Routes>
+      </ConfirmDialogProvider>
     </VaultLockGate>
   );
 }

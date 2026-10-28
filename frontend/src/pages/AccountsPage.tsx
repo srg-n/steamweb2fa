@@ -22,9 +22,11 @@ import type { StoredAccount, AccountSummary, FolderItem, TagItem } from '../serv
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
+import { useDialogs } from '../components/ui/ConfirmDialog';
 
 export function AccountsPage() {
   const { t } = useTranslation();
+  const { confirm } = useDialogs();
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [tags, setTags] = useState<TagItem[]>([]);
@@ -135,7 +137,13 @@ export function AccountsPage() {
 
   // Delete account handler
   const handleDeleteAccount = async (accountId: string, alias: string) => {
-    if (!window.confirm(`${t('accounts.deleteConfirm')}\n\n${alias}`)) return;
+    const accepted = await confirm({
+      title: t('accounts.deleteConfirm'),
+      message: alias,
+      tone: 'danger',
+      confirmLabel: t('common.delete')
+    });
+    if (!accepted) return;
     await accountApi.delete(accountId);
     await loadData();
   };

@@ -22,9 +22,11 @@ import { Card } from '../components/ui/Card';
 import { SessionRefreshCard } from '../components/SessionRefreshCard';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { useDialogs } from '../components/ui/ConfirmDialog';
 
 export function ConfirmationsPage() {
   const { t } = useTranslation();
+  const { confirm } = useDialogs();
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
   const [confirmations, setConfirmations] = useState<ConfirmationItem[]>([]);
@@ -162,7 +164,13 @@ export function ConfirmationsPage() {
     if (confirmations.length === 0 || batchBusy) return;
     if (!isAuto) {
       const actionName = accept ? t('confirmations.acceptAll') : t('confirmations.rejectAll');
-      if (!window.confirm(`${actionName} (${confirmations.length})?`)) return;
+      const accepted = await confirm({
+        title: actionName,
+        message: t('confirmations.batchBody', { count: confirmations.length }),
+        tone: accept ? 'default' : 'danger',
+        confirmLabel: actionName
+      });
+      if (!accepted) return;
     }
 
     setBatchBusy(true);

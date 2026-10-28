@@ -5,6 +5,7 @@ import { cleanup, render, waitFor, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountsPage } from './AccountsPage';
+import { ConfirmDialogProvider } from '../components/ui/ConfirmDialog';
 
 const apiMocks = vi.hoisted(() => ({
   accountApi: {
@@ -85,7 +86,9 @@ describe('AccountsPage Serverless PWA', () => {
   it('renders accounts list with live Steam Guard code', async () => {
     render(
       <MemoryRouter>
-        <AccountsPage />
+        <ConfirmDialogProvider>
+          <AccountsPage />
+        </ConfirmDialogProvider>
       </MemoryRouter>
     );
 
@@ -103,7 +106,9 @@ describe('AccountsPage Serverless PWA', () => {
   it('never renders a secret into the list view', async () => {
     render(
       <MemoryRouter>
-        <AccountsPage />
+        <ConfirmDialogProvider>
+          <AccountsPage />
+        </ConfirmDialogProvider>
       </MemoryRouter>
     );
 

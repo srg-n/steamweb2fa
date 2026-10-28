@@ -6,9 +6,11 @@ import type { LocalLogItem } from '../services/storage';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { useDialogs } from '../components/ui/ConfirmDialog';
 
 export function LogsPage() {
   const { t } = useTranslation();
+  const { confirm } = useDialogs();
   const [logs, setLogs] = useState<LocalLogItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -28,7 +30,12 @@ export function LogsPage() {
   }, [loadLogs]);
 
   const handleClear = async () => {
-    if (!window.confirm(t('logs.clearConfirm'))) return;
+    const accepted = await confirm({
+      title: t('logs.clearConfirm'),
+      tone: 'danger',
+      confirmLabel: t('common.delete')
+    });
+    if (!accepted) return;
     await logApi.clear();
     setLogs([]);
   };

@@ -27,6 +27,7 @@ import { SecretInput } from '../components/ui/SecretInput';
 import { applyCorsProxy } from '../services/steamClient';
 import { detectPrfSupport } from '../services/prfVault';
 import { describeVaultError } from '../services/vaultErrors';
+import { useDialogs } from '../components/ui/ConfirmDialog';
 import {
   addPassphrase,
   changePassphrase,
@@ -49,6 +50,7 @@ const AUTO_LOCK_OPTIONS = [60, 300, 900, 3600];
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
+  const { confirm } = useDialogs();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
@@ -297,9 +299,13 @@ export function SettingsPage() {
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm(t('settings.wipeConfirm'))) {
-      return;
-    }
+    const accepted = await confirm({
+      title: t('settings.wipeAll'),
+      message: t('settings.wipeConfirm'),
+      tone: 'danger',
+      confirmLabel: t('common.delete')
+    });
+    if (!accepted) return;
     setMessage(null);
     // The key must be forgotten before the encrypted records disappear.
     lockVault();
@@ -379,8 +385,14 @@ export function SettingsPage() {
   };
 
   const handleDisableVault = () => {
-    if (!window.confirm(t('vault.disableConfirm'))) return;
     return runVault(async () => {
+      const accepted = await confirm({
+        title: t('common.confirmTitle'),
+        message: t('vault.disableConfirm'),
+        tone: 'danger',
+        confirmLabel: t('vault.disable')
+      });
+      if (!accepted) return;
       // Records must be rewritten in plain text before the key is discarded.
       await db.migrateToPlaintext();
       await disableVault();
@@ -406,9 +418,15 @@ export function SettingsPage() {
   };
 
   const handleRemovePassphrase = () => {
-    if (!window.confirm(t('vault.removePassphraseConfirm'))) return;
     const current = currentPassphraseRef.current?.value ?? '';
     return runVault(async () => {
+      const accepted = await confirm({
+        title: t('common.confirmTitle'),
+        message: t('vault.removePassphraseConfirm'),
+        tone: 'danger',
+        confirmLabel: t('vault.removePassphrase')
+      });
+      if (!accepted) return;
       await removePassphrase(current);
       if (currentPassphraseRef.current) currentPassphraseRef.current.value = '';
     }, 'vault.passphraseRemoved');

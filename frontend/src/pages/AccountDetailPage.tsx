@@ -26,9 +26,11 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { SecretInput } from '../components/ui/SecretInput';
+import { useDialogs } from '../components/ui/ConfirmDialog';
 
 export function AccountDetailPage() {
   const { t } = useTranslation();
+  const { confirm, alert } = useDialogs();
   const params = useParams<{ id: string }>();
   const navigate = useNavigate();
   const accountId = params.id as string;
@@ -255,7 +257,13 @@ export function AccountDetailPage() {
 
   const handleDelete = async () => {
     if (!account) return;
-    if (!window.confirm(`${t('accounts.deleteConfirm')}\n\n${account.alias}`)) return;
+    const accepted = await confirm({
+      title: t('accounts.deleteConfirm'),
+      message: account.alias,
+      tone: 'danger',
+      confirmLabel: t('common.delete')
+    });
+    if (!accepted) return;
     await accountApi.delete(account.id);
     navigate('/accounts');
   };
@@ -270,7 +278,11 @@ export function AccountDetailPage() {
       await steamApi.respond(accountId, item.id, item.nonce, accept);
       setConfirmations((prev) => prev.filter((c) => c.id !== item.id));
     } catch (err: any) {
-      alert(err?.message || t('confirmations.respondFailed'));
+      alert({
+        title: t('confirmations.respondFailed'),
+        message: err?.message || t('accountDetail.unknownError'),
+        tone: 'error'
+      });
     }
   };
 
