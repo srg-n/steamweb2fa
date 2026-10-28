@@ -6,6 +6,17 @@ import { Button } from './ui/Button';
 import { SecretInput } from './ui/SecretInput';
 
 /**
+ * Appends the underlying error message after the generic i18n text. A bare
+ * catch used to swallow the service layer's diagnosis and showed the same
+ * "check your password" line for a vault error, a proxy 401 or a real Steam
+ * rejection — indistinguishable for the user.
+ */
+function withFailureDetail(fallback: string, err: unknown): string {
+  const detail = typeof err === 'string' ? err : err instanceof Error ? err.message : '';
+  return detail ? `${fallback} (${detail})` : fallback;
+}
+
+/**
  * Oturum bittiğinde gösterilen "yenile" kartı.
  *
  * Steam çerezi geçerliliğini yitirince kullanıcıya hesap ayarlarına girip
@@ -50,15 +61,18 @@ export function SessionRefreshCard({
         await onRefreshed();
         return;
       }
-      setStatus(
+      const base =
         res.error === 'NO_REFRESH_TOKEN'
           ? t('sessionRefresh.noRefreshToken')
-          : t('sessionRefresh.refreshFailed')
-      );
+          : t('sessionRefresh.refreshFailed');
+      // Reveal the underlying reason: the service layer spells out what Steam
+      // rejected (needauth, revoked refresh token, proxy errors...). Without it
+      // every failure looks like "wrong password" to the user.
+      setStatus(res.error && res.error !== 'NO_REFRESH_TOKEN' ? `${base} (${res.error})` : base);
       setStatusType('error');
       setPasswordMode(true);
-    } catch {
-      setStatus(t('sessionRefresh.refreshFailed'));
+    } catch (err) {
+      setStatus(withFailureDetail(t('sessionRefresh.refreshFailed'), err));
       setStatusType('error');
       setPasswordMode(true);
     } finally {
@@ -81,10 +95,10 @@ export function SessionRefreshCard({
         await onRefreshed();
         return;
       }
-      setStatus(t('sessionRefresh.loginFailed'));
+      setStatus(withFailureDetail(t('sessionRefresh.loginFailed'), res.error));
       setStatusType('error');
-    } catch {
-      setStatus(t('sessionRefresh.loginFailed'));
+    } catch (err) {
+      setStatus(withFailureDetail(t('sessionRefresh.loginFailed'), err));
       setStatusType('error');
     } finally {
       setBusy(null);

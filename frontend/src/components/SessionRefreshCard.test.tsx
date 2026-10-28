@@ -94,7 +94,7 @@ describe('SessionRefreshCard', () => {
     fireEvent.change(passwordInput, { target: { value: 'wrong' } });
     fireEvent.click(screen.getByRole('button', { name: /log in with password/i }));
 
-    await waitFor(() => expect(screen.getByText('Steam login failed.')).toBeDefined());
+    await waitFor(() => expect(screen.getByText(/Steam login failed\./)).toBeDefined());
     expect(onRefreshed).not.toHaveBeenCalled();
   });
 

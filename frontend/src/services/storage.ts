@@ -606,6 +606,7 @@ class ClientDatabase {
       const { corsProxySecret, ...plain } = updated;
       const record: Record<string, unknown> = { key: 'app_settings', value: plain };
 
+      const existing = await this.rawSettingsRecord();
       if (corsProxySecret) {
         if (vaultActive()) {
           // Refuses to downgrade to plain text if the vault happens to be shut.
@@ -617,6 +618,13 @@ class ClientDatabase {
           // Vault disabled: the secret still never leaves IndexedDB.
           record.value = { ...plain, corsProxySecret };
         }
+      } else if (existing?.secrets?.corsProxySecret) {
+        // While the vault is locked, getSettings cannot hand us the secret, so
+        // it arrives here as undefined. Rewriting the record from scratch would
+        // then permanently drop the encrypted envelope — the user would only
+        // notice later, when every proxied Steam call starts failing with 401.
+        // Carry the untouched envelope forward instead.
+        record.secrets = { corsProxySecret: existing.secrets.corsProxySecret };
       }
 
       // Encryption must finish before the transaction opens: an `await`
