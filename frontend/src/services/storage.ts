@@ -553,18 +553,16 @@ class ClientDatabase {
         req.onsuccess = async () => {
           try {
             resolve(await this.readSettingsRecord(req.result));
-          } catch (err) {
-            // Locked vault: the proxy secret stays encrypted, everything else
-            // is still readable.
-            if (err instanceof VaultLockedError) {
-              const rest: Partial<AppSettings> = {
-                ...((req.result?.value as AppSettings | undefined) ?? DEFAULT_SETTINGS)
-              };
-              delete rest.corsProxySecret;
-              resolve({ ...DEFAULT_SETTINGS, ...rest });
-              return;
-            }
-            throw err;
+          } catch {
+            // A locked vault leaves the secret out and everything else intact.
+            // The same fallback applies to envelopes that cannot be decrypted
+            // any more (written by an older vault key): re-throwing here would
+            // leave the caller's promise unsettled, freezing the UI.
+            const rest: Partial<AppSettings> = {
+              ...((req.result?.value as AppSettings | undefined) ?? DEFAULT_SETTINGS)
+            };
+            delete rest.corsProxySecret;
+            resolve({ ...DEFAULT_SETTINGS, ...rest });
           }
         };
         req.onerror = () => {

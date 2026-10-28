@@ -104,12 +104,24 @@ export function SettingsPage() {
   useEffect(() => {
     settingsApi.get().then(setSettings);
 
+    // When the vault opens later, the previously undecryptable proxy secret
+    // becomes readable — reload the settings so the field reflects it.
+    const refreshOnUnlock = (status: VaultStatus) => {
+      if (status === 'unlocked') {
+        settingsApi.get().then(setSettings);
+      }
+    };
+    const offVaultChange = onVaultChange(refreshOnUnlock);
+
     const handleBeforeInstall = (e: any) => {
       e.preventDefault();
       setInstallPrompt(e);
     };
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      offVaultChange();
+    };
   }, []);
 
   if (!settings) {
