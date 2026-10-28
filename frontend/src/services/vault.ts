@@ -5,7 +5,7 @@
  *  - own the single in-memory data encryption key (never persisted in the clear),
  *  - persist only *wrapped* copies of that key (passkey/PRF and/or passphrase),
  *  - expose lock/unlock state so the UI can gate access to secrets,
- *  - auto-lock on inactivity and when the tab is hidden.
+ *  - auto-lock on inactivity.
  *
  * This module never imports `storage` (which imports it) to keep the
  * dependency graph acyclic: persistence is injected by `storage`.
@@ -212,28 +212,26 @@ export function touchVault(): void {
 }
 
 /**
- * Locks the vault when the tab is hidden and on inactivity. Returns a cleanup
- * function for the caller to use as an effect teardown.
+ * Locks the vault after a period of inactivity. Returns a cleanup function
+ * for the caller to use as an effect teardown.
+ *
+ * Deliberately does NOT lock on `visibilitychange`: switching to another tab
+ * momentarily is a normal part of using the app (copying a code, checking a
+ * trade offer), and the inactivity timer already covers "left the computer".
  */
 export function attachAutoLock(): () => void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => undefined;
 
   const onActivity = () => touchVault();
-  const onVisibility = () => {
-    if (document.visibilityState === 'hidden') lockVault();
-    else touchVault();
-  };
 
   window.addEventListener('pointerdown', onActivity);
   window.addEventListener('keydown', onActivity);
-  document.addEventListener('visibilitychange', onVisibility);
   touchVault();
 
   return () => {
     if (autoLockTimer) clearTimeout(autoLockTimer);
     window.removeEventListener('pointerdown', onActivity);
     window.removeEventListener('keydown', onActivity);
-    document.removeEventListener('visibilitychange', onVisibility);
   };
 }
 
