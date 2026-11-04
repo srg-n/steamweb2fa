@@ -53,8 +53,15 @@
     "vitest": "^5.0.5"
   },
   "overrides": {
-    "follow-redirects": "^1.16.0",
+    "follow-redirects": "^1.16.2",
     "tinypool": "^2.2.0",
     "braces": "^3.0.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "follow-redirects": "^1.16.2",
+      "tinypool": "^2.2.0",
+      "braces": "^3.0.3"
+    }
   }
 }
