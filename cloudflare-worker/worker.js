@@ -28,7 +28,7 @@ function isAllowedHost(hostname) {
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Steam-Cookie, X-Proxy-Secret, Accept',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Steam-Cookie, X-Proxy-Secret, X-Steam-Origin, X-Steam-Referer, Accept',
   'Access-Control-Expose-Headers': 'X-Steam-Set-Cookie, Set-Cookie',
   'Access-Control-Max-Age': '86400'
 };
@@ -109,10 +109,7 @@ export default {
       'accept',
       'content-type',
       'user-agent',
-      'origin',
-      'referer',
       'x-requested-with',
-      'sec-fetch-site',
       'sec-fetch-mode',
       'sec-fetch-dest'
     ];
@@ -120,6 +117,24 @@ export default {
       const val = request.headers.get(h);
       if (val) forwardHeaders.set(h, val);
     }
+
+    // Ensure Origin and Referer sent to Steam are valid Steam origins,
+    // so Steam's CSRF checks on auth/settoken endpoints do not reject requests with EResult 8 (InvalidParam).
+    const customOrigin = request.headers.get('x-steam-origin');
+    const clientOrigin = customOrigin || request.headers.get('origin');
+    let steamOrigin = targetUrl.origin;
+    if (clientOrigin) {
+      try {
+        const parsedOrigin = new URL(clientOrigin);
+        if (isAllowedHost(parsedOrigin.hostname)) {
+          steamOrigin = clientOrigin;
+        }
+      } catch {
+        steamOrigin = targetUrl.origin;
+      }
+    }
+    forwardHeaders.set('origin', steamOrigin);
+    forwardHeaders.set('referer', `${steamOrigin}/`);
 
     // Use default browser-like user agent if not provided
     if (!forwardHeaders.has('user-agent')) {

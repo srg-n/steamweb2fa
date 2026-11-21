@@ -125,6 +125,7 @@ export const accountApi = {
     if (res.success) {
       await db.saveAccount({
         ...account,
+        steamid: res.steamID && res.steamID !== '0' ? res.steamID : account.steamid,
         session: {
           steamLoginSecure: res.steamLoginSecure,
           sessionid: res.sessionid,
@@ -150,6 +151,7 @@ export const accountApi = {
     if (res.success && res.steamLoginSecure) {
       await db.saveAccount({
         ...account,
+        steamid: res.steamID && res.steamID !== '0' ? res.steamID : account.steamid,
         session: {
           ...account.session,
           steamLoginSecure: res.steamLoginSecure,

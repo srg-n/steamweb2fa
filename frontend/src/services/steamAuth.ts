@@ -103,12 +103,37 @@ export function encryptSteamPassword(password: string, publickeyModHex: string, 
   return uint8ArrayToBase64(cBytes);
 }
 
+/**
+ * Safely extracts the 64-bit SteamID from the `sub` claim of a Steam OAuth JWT (access_token or refresh_token).
+ * In Steam's OAuth tokens, the `sub` field is always the 17-digit 64-bit SteamID (76561198xxxxxxxx).
+ */
+export function extractSteamIdFromToken(token: string): string | null {
+  if (!token || typeof token !== 'string') return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4 !== 0) {
+      base64 += '=';
+    }
+    const json = atob(base64);
+    const payload = JSON.parse(json);
+    if (payload?.sub && typeof payload.sub === 'string' && /^\d{17}$/.test(payload.sub)) {
+      return payload.sub;
+    }
+    return payload?.sub ? String(payload.sub) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface SteamLoginResult {
   success: boolean;
   steamLoginSecure?: string;
   oauthToken?: string;
   refreshToken?: string;
   sessionid?: string;
+  steamID?: string;
   error?: string;
 }
 
@@ -211,7 +236,25 @@ export class SteamAuthService {
       throw new Error('Steam geçersiz oturum yanıtı döndü (transfer_info yok).');
     }
 
-    const steamID = data.steamID || knownSteamId || '0';
+    const tokenSteamId = extractSteamIdFromToken(refreshToken);
+    let steamID =
+      tokenSteamId ||
+      (data.steamID && String(data.steamID) !== '0' ? String(data.steamID) : '') ||
+      (knownSteamId && knownSteamId !== '0' ? String(knownSteamId) : '') ||
+      '';
+
+    if (!steamID) {
+      for (const t of data.transfer_info) {
+        if (t?.params?.auth) {
+          const authId = extractSteamIdFromToken(String(t.params.auth));
+          if (authId) {
+            steamID = authId;
+            break;
+          }
+        }
+      }
+    }
+
     let cookieValue = '';
     const transferResults: string[] = [];
 
@@ -220,20 +263,40 @@ export class SteamAuthService {
       if (!transfer?.url || !transfer?.params) continue;
 
       const isCommunity = isSteamCommunityUrl(String(transfer.url));
+      const targetOrigin = new URL(transfer.url).origin;
       const ATTEMPT_COUNT = 5;
+
+      const transferParams: Record<string, string> = {
+        steamID,
+        ...transfer.params
+      };
+      if (steamID && steamID !== '0') {
+        transferParams.steamID = steamID;
+      }
 
       for (let attempt = 0; attempt < ATTEMPT_COUNT; attempt++) {
         try {
-          const transferForm = new FormData();
-          transferForm.append('steamID', steamID);
-          for (const [k, v] of Object.entries(transfer.params)) {
-            transferForm.append(k, String(v));
+          const transferHeaders: Record<string, string> = {
+            ...proxyHeaders(),
+            Origin: targetOrigin,
+            Referer: `${targetOrigin}/`
+          };
+
+          let bodyPayload: BodyInit;
+          if (attempt % 2 === 1) {
+            bodyPayload = new URLSearchParams(transferParams);
+          } else {
+            const transferForm = new FormData();
+            for (const [k, v] of Object.entries(transferParams)) {
+              transferForm.append(k, String(v));
+            }
+            bodyPayload = transferForm;
           }
 
           const tRes = await fetch(applyCorsProxy(transfer.url, settings.corsProxyUrl), {
             method: 'POST',
-            headers: proxyHeaders(),
-            body: transferForm
+            headers: transferHeaders,
+            body: bodyPayload
           });
 
           if (!tRes.ok) {
@@ -304,7 +367,13 @@ export class SteamAuthService {
     settings: AppSettings
   ): Promise<void> {
     if (!account.identitySecret) return;
-    const steamid = account.steamid || '0';
+    const tokenSteamId = extractSteamIdFromToken(refreshToken);
+    const steamid =
+      tokenSteamId && tokenSteamId !== '0'
+        ? tokenSteamId
+        : account.steamid && account.steamid !== '0'
+        ? account.steamid
+        : '0';
     const time = Math.floor(Date.now() / 1000) + (settings.timeOffsetSec || 0);
     const deviceId = getDeviceId(steamid);
     const key = generateConfirmationKey(account.identitySecret, 'conf', time);
@@ -428,7 +497,8 @@ export class SteamAuthService {
       steamLoginSecure: fin.steamLoginSecure,
       oauthToken: freshOauthToken,
       refreshToken,
-      sessionid: freshSessionId
+      sessionid: freshSessionId,
+      steamID: freshSteamId
     };
   }
 
@@ -604,12 +674,24 @@ export class SteamAuthService {
     // steamcommunity.com, which shows up later as needauth: true on mobileconf.
     onStatus?.('steamLoginSecure çerezi oluşturuluyor...');
 
+    const tokenSteamId = extractSteamIdFromToken(refreshToken);
+    const resolvedSteamId =
+      tokenSteamId && tokenSteamId !== '0'
+        ? tokenSteamId
+        : steamid !== '0'
+        ? steamid
+        : '0';
+
     let steamLoginSecure = '';
     let finalizedSessionId = '';
+    let finalSteamId = resolvedSteamId;
     try {
-      const fin = await this.finalizeAuthSession(refreshToken, settings, steamid);
+      const fin = await this.finalizeAuthSession(refreshToken, settings, resolvedSteamId);
       steamLoginSecure = fin.steamLoginSecure || '';
       finalizedSessionId = fin.sessionid;
+      if (fin.steamID && fin.steamID !== '0') {
+        finalSteamId = fin.steamID;
+      }
     } catch (finalizeErr: any) {
       throw new Error(`Oturum çerezi alınamadı: ${finalizeErr?.message || finalizeErr}`);
     }
@@ -622,7 +704,7 @@ export class SteamAuthService {
     onStatus?.('Oturum başarıyla kaydediliyor...');
     const updatedAccount: StoredAccount = {
       ...account,
-      steamid: steamid !== '0' ? steamid : account.steamid,
+      steamid: finalSteamId !== '0' ? finalSteamId : account.steamid,
       session: {
         steamLoginSecure,
         oauthToken: accessToken || account.session?.oauthToken,
@@ -639,7 +721,8 @@ export class SteamAuthService {
       steamLoginSecure,
       oauthToken: accessToken,
       refreshToken,
-      sessionid: finalizedSessionId
+      sessionid: finalizedSessionId,
+      steamID: finalSteamId
     };
   }
 }
