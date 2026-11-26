@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { extractSteamIdFromToken } from './steamAuth';
+import { describe, it, expect, vi } from 'vitest';
+import { extractSteamIdFromToken, SteamAuthService } from './steamAuth';
+import type { StoredAccount, AppSettings } from './storage';
 
 describe('extractSteamIdFromToken', () => {
   it('returns null for empty or invalid token strings', () => {
@@ -31,5 +32,82 @@ describe('extractSteamIdFromToken', () => {
     const header = btoa(JSON.stringify({ alg: 'none' }));
     const payload = btoa(JSON.stringify({ other: 'value' }));
     expect(extractSteamIdFromToken(`${header}.${payload}.sig`)).toBeNull();
+  });
+});
+
+describe('SteamAuthService session refresh', () => {
+  const service = new SteamAuthService();
+  const dummySettings: AppSettings = {
+    theme: 'dark',
+    language: 'tr'
+  };
+
+  it('returns error if refreshToken is missing', async () => {
+    const account: StoredAccount = {
+      id: 'acc_1',
+      alias: 'Main',
+      accountName: 'testuser',
+      steamid: '76561198012345678',
+      secretFields: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const res = await service.refreshWithRefreshToken(account, dummySettings);
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('refreshToken');
+  });
+
+  it('returns error if refreshToken is expired', async () => {
+    // JWT with exp in the past (1000)
+    const header = btoa(JSON.stringify({ alg: 'none' })).replace(/=/g, '');
+    const payload = btoa(JSON.stringify({ sub: '76561198012345678', exp: 1000 })).replace(/=/g, '');
+    const expiredToken = `${header}.${payload}.sig`;
+
+    const account: StoredAccount = {
+      id: 'acc_1',
+      alias: 'Main',
+      accountName: 'testuser',
+      steamid: '76561198012345678',
+      session: {
+        refreshToken: expiredToken
+      },
+      secretFields: ['session.refreshToken'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    const res = await service.refreshWithRefreshToken(account, dummySettings);
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('süresi dolmuş');
+  });
+
+  it('verifyWebSessionCookie does not throw ReferenceError for refreshToken', async () => {
+    const account: StoredAccount = {
+      id: 'acc_1',
+      alias: 'Main',
+      accountName: 'testuser',
+      steamid: '76561198012345678',
+      identitySecret: 'dummy_secret',
+      session: {
+        refreshToken: 'dummy_token'
+      },
+      secretFields: ['identitySecret', 'session.refreshToken'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Mock fetch to simulate successful mobileconf/getlist response
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, conf: [] })
+    } as any);
+
+    try {
+      await expect(
+        service.verifyWebSessionCookie(account, 'dummyCookie', 'dummySessionId', dummySettings)
+      ).resolves.not.toThrow();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

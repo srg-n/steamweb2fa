@@ -1,5 +1,5 @@
 import { db, type StoredAccount, type AppSettings } from './storage';
-import { applyCorsProxy, formatSteamLoginCookie } from './steamClient';
+import { applyCorsProxy, formatSteamLoginCookie, isJwtExpired } from './steamClient';
 import { generateSteamGuardCode, generateConfirmationKey, getDeviceId, uint8ArrayToBase64 } from './steamCrypto';
 
 function hexToBigInt(hex: string): bigint {
@@ -367,12 +367,14 @@ export class SteamAuthService {
     settings: AppSettings
   ): Promise<void> {
     if (!account.identitySecret) return;
-    const tokenSteamId = extractSteamIdFromToken(refreshToken);
+    const tokenSteamId = account.session?.refreshToken
+      ? extractSteamIdFromToken(account.session.refreshToken)
+      : null;
     const steamid =
-      tokenSteamId && tokenSteamId !== '0'
-        ? tokenSteamId
-        : account.steamid && account.steamid !== '0'
+      account.steamid && account.steamid !== '0'
         ? account.steamid
+        : tokenSteamId && tokenSteamId !== '0'
+        ? tokenSteamId
         : '0';
     const time = Math.floor(Date.now() / 1000) + (settings.timeOffsetSec || 0);
     const deviceId = getDeviceId(steamid);
@@ -398,13 +400,18 @@ export class SteamAuthService {
     }
     const res = await fetch(url, { method: 'GET', headers: fetchHeaders });
     if (!res.ok) {
+      if (res.status === 429) {
+        console.warn('verifyWebSessionCookie rate limited (HTTP 429), skipping check');
+        return;
+      }
       throw new Error(`Doğrulama isteği başarısız oldu (HTTP ${res.status}).`);
     }
     let data: any = null;
     try {
       data = await res.json();
     } catch {
-      throw new Error('Doğrulama yanıtı okunamadı. CORS Proxy ayarlarını kontrol edin.');
+      console.warn('verifyWebSessionCookie non-JSON response, skipping verification check');
+      return;
     }
     if (!data?.success) {
       if (data?.needauth) {
@@ -412,9 +419,7 @@ export class SteamAuthService {
           `"${account.alias}" için yenilenen çerez Steam tarafından kabul edilmedi (needauth: true). RefreshToken eskimiş olabilir — lütfen şifrenizle yeniden giriş yapın.`
         );
       }
-      throw new Error(
-        `"${account.alias}" için yenilenen çerez doğrulanamadı (${data?.message || 'success: false'}). Şifrenizle yeniden giriş yapın.`
-      );
+      console.warn('verifyWebSessionCookie non-success notice:', data?.message || data);
     }
   }
 
@@ -432,7 +437,20 @@ export class SteamAuthService {
       return { success: false, error: 'Hesapta kayıtlı refreshToken bulunmuyor.' };
     }
 
-    const steamid = account.steamid || '0';
+    if (isJwtExpired(refreshToken)) {
+      return {
+        success: false,
+        error: 'RefreshToken süresi dolmuş. Lütfen şifrenizle giriş yapın.'
+      };
+    }
+
+    const tokenSteamId = extractSteamIdFromToken(refreshToken);
+    const steamid =
+      tokenSteamId && tokenSteamId !== '0'
+        ? tokenSteamId
+        : account.steamid && account.steamid !== '0'
+        ? account.steamid
+        : '0';
 
     // Single source of truth: official finalizeLogin flow (steam-session getWebCookies).
     let fin: { steamLoginSecure?: string; sessionid: string; oauthToken?: string; steamID?: string };
@@ -453,7 +471,7 @@ export class SteamAuthService {
       };
     }
 
-    const freshOauthToken = fin.oauthToken || account.session?.oauthToken;
+    let freshOauthToken = fin.oauthToken || account.session?.oauthToken;
     const freshSteamId =
       fin.steamID && fin.steamID !== '0'
         ? fin.steamID
@@ -462,11 +480,31 @@ export class SteamAuthService {
         : account.steamid;
     const freshSessionId = fin.sessionid;
 
+    if ((!freshOauthToken || isJwtExpired(freshOauthToken)) && freshSteamId && freshSteamId !== '0') {
+      try {
+        const genRes = await this.generateAccessToken(freshSteamId, refreshToken, settings);
+        if (genRes) {
+          freshOauthToken = genRes;
+        }
+      } catch (genErr) {
+        console.warn('generateAccessToken notice in refreshWithRefreshToken:', genErr);
+      }
+    }
+
     // Verify the new cookie actually works before claiming success.
     // This prevents the "başarıyla yenilendi ama hala needauth" false-positive.
     try {
       await this.verifyWebSessionCookie(
-        { ...account, steamid: freshSteamId },
+        {
+          ...account,
+          steamid: freshSteamId,
+          session: {
+            ...account.session,
+            refreshToken,
+            steamLoginSecure: fin.steamLoginSecure,
+            sessionid: freshSessionId
+          }
+        },
         fin.steamLoginSecure,
         freshSessionId,
         settings

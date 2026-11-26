@@ -155,6 +155,7 @@ export const accountApi = {
         session: {
           ...account.session,
           steamLoginSecure: res.steamLoginSecure,
+          sessionid: res.sessionid ?? account.session.sessionid,
           oauthToken: res.oauthToken ?? account.session.oauthToken,
           refreshToken: res.refreshToken ?? account.session.refreshToken
         },

@@ -18,7 +18,7 @@ export interface ConfirmOptions {
   /** Heading shown at the top of the panel. Falls back to i18n 'common.confirmTitle'. */
   title?: string;
   /** Body text; can include interpolated content outside of i18n keys. */
-  message: ReactNode;
+  message?: ReactNode;
   /** Default: t('common.confirm') when present, otherwise 'OK'. */
   confirmLabel?: string;
   /** Default: t('common.cancel'). */

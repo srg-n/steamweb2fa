@@ -32,6 +32,7 @@ export function LogsPage() {
   const handleClear = async () => {
     const accepted = await confirm({
       title: t('logs.clearConfirm'),
+      message: t('logs.clearConfirm'),
       tone: 'danger',
       confirmLabel: t('common.delete')
     });
